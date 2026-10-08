@@ -147,3 +147,50 @@ The agent "knows facts" rather than "recalls conversation."
 - Fixed context budget sweep (e.g., 16K / 32K / 128K) — ARC's approach; the only fair comparison
 - Same base model + same judge across strategies
 - Both online (compaction during a live conversation) and offline (QA over assembled context) eval modes — efficiency is an online property; most benchmarks only test offline
+
+## Reasoning-token persistence (added Oct 2026)
+
+Do agents keep thinking/CoT in history, and should they? Measured on a real
+pi session (warp3090, Oct 6): assistant **thinking = 48% of all content
+tokens** (1.36M of 2.81M) vs tool results 45%, assistant prose 6%, user 1%.
+Reasoning persistence is therefore the single largest context lever for
+reasoning-model sessions -- larger than tool-output compaction, which is
+what the classical papers optimize.
+
+**Coverage in our references:** mostly absent. ARC compacts tool
+observations only (our pi-corpus run shows the failure: peaks 232-415K on a
+128K budget because assistant content is untouchable). LCM and CompactionRL
+treat all history uniformly; Context Compaction Theory only observes that
+deployed compaction destroys it ("after 2 compactions, all reasoning is
+gone" -- Codex teardown).
+
+**The 2026 wave asking exactly this:**
+- *When Can Agents Forget Their Reasoning?* (arXiv:2609.29875) -- online
+  compression of historical reasoning; removing it changes future actions;
+  scores reasoning relevance given trajectory state; surveys ARC,
+  SelfCompact, Sculptor, SWE Pruner, COMPASS.
+- *SelfCompact* (arXiv:2606.23525) -- rubric-gated compaction over "closed
+  reasoning units"; +18.1 pts math / +5-9 agentic search at 30-70% lower
+  cost vs fixed-interval compaction.
+- *Structured Context Eviction* (arXiv:2606.11213) -- explicit eviction
+  ladder; **reasoning-trace stripping comes first** (exploratory episodes).
+- *COMPASS* (ACL 2026) -- meta-thinker reasons over previous reasoning;
+  keeps it as structured notes, not in-context.
+- *Slipstream* (arXiv:2605.08580) -- validates compactions against the
+  agent's continued reasoning.
+
+**Vendor policy (production):**
+- Anthropic: thinking blocks REQUIRED verbatim within a tool-use turn
+  (signatures); across turns, pass all back and the API auto-filters
+  (per-model defaults; Opus 4.5+/Sonnet 4.6+ keep all turns); explicit
+  `clear_thinking_20251015` strategy with keep=N-turns|all; edited history
+  invalidates preserved-thinking signatures.
+- OpenAI: o1/o3-mini ignored reasoning on follow-ups; o3+ auto-includes
+  "relevant" reasoning items (adjacent to function calls), recommends
+  passing all and letting the API prune; GPT-5.6 exposes an explicit
+  `reasoning.context: all_turns | current_turn | auto` dial; ChatGPT
+  persists *reasoning recaps* (summaries), not raw CoT, across sessions.
+
+**Gap nobody fills cleanly:** no published comparison of drop vs persist vs
+recap (summarize-at-record-time) reasoning policies on real multi-day
+sessions. Our pi corpus + open-loop replay can run exactly that ablation.
