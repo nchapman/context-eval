@@ -76,6 +76,7 @@ class Cell:
     strategy: str
     budget: int
     label: str
+    tier: str
     runs: int
     overflowed: int
     errored: int
@@ -95,6 +96,17 @@ class Cell:
     view_rewrite_rate: float
 
 
+def _tier(budget_tokens: int) -> str:
+    """Deployment framing from docs/budgets.md (fixed costs sit outside budget)."""
+    if budget_tokens >= UNCAPPED_BUDGET:
+        return "uncapped"
+    if budget_tokens >= 128_000:
+        return "deployment"
+    if budget_tokens >= 64_000:
+        return "mid"
+    return "stress"
+
+
 def aggregate(runs: list[dict]) -> list[Cell]:
     grouped: dict[tuple[str, int], list[dict]] = defaultdict(list)
     for run in runs:
@@ -102,7 +114,8 @@ def aggregate(runs: list[dict]) -> list[Cell]:
 
     cells = []
     for (strategy, budget), group in sorted(grouped.items()):
-        if strategy == "full-context" and budget >= UNCAPPED_BUDGET:
+        tier = _tier(budget)
+        if strategy == "full-context" and tier == "uncapped":
             label = "full-context (uncapped)"
         elif strategy == "full-context":
             label = f"full-context (capped@{budget // 1000}k)"
@@ -141,6 +154,7 @@ def aggregate(runs: list[dict]) -> list[Cell]:
                 strategy=strategy,
                 budget=budget,
                 label=label,
+                tier=tier,
                 runs=len(group),
                 overflowed=sum(1 for r in group if r["overflowed_at"] is not None),
                 errored=sum(1 for r in group if r["error"]),
@@ -201,13 +215,13 @@ def render_markdown(cells: list[Cell], curves: dict[str, list]) -> str:
         "share of turns where the strategy changed its view head (cache bust).",
         "conv view tok = cumulative resident-context tokens over the replay.",
         "",
-        "| strategy | runs | ovf | acc | 95% CI | pass tok/q | pass $/q | cached |"
-        " rewrite | conv view tok | ohd $ | cmp | tools/q |",
+        "| strategy | tier | runs | ovf | acc | 95% CI | pass tok/q | pass $/q |"
+        " cached | rewrite | conv view tok | ohd $ | cmp | tools/q |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for c in cells:
         lines.append(
-            f"| {c.label} | {c.runs} | {c.overflowed} | {c.acc:.2f} "
+            f"| {c.label} | {c.tier} | {c.runs} | {c.overflowed} | {c.acc:.2f} "
             f"| [{c.acc_lo:.2f}, {c.acc_hi:.2f}] | {c.pass_tok_per_q:,.0f} "
             f"| ${c.cost_per_q:.4f} | {c.cached_share:.0%} | {c.view_rewrite_rate:.0%} "
             f"| {c.conv_view_tok_mean:,.0f} | ${c.overhead_cost_mean:.4f} "
@@ -215,7 +229,18 @@ def render_markdown(cells: list[Cell], curves: dict[str, list]) -> str:
         )
 
     if curves:
-        lines += ["", "## Needle accuracy by depth", ""]
+        lines += [
+            "",
+            "## Budget tiers",
+            "",
+            "Budgets bound the strategy view only (fixed costs sit outside, as in",
+            "production tools; see docs/budgets.md). stress = MemGPT-class core",
+            "memory; deployment = Claude-Code/Cline-class history budget (window",
+            "minus ~30K overhead minus reserve); uncapped = 1M-window regime.",
+            "",
+            "## Needle accuracy by depth",
+            "",
+        ]
         strategies = sorted(curves)
         header = ["strategy", *[label for label, _, _ in curves[strategies[0]]]]
         lines.append("| " + " | ".join(header) + " |")
