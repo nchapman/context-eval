@@ -66,13 +66,14 @@ class ReplaySample:
         )
 
 
-def write_jsonl(samples: Sequence[ReplaySample], path: Path) -> None:
+def write_jsonl(samples: Sequence[ReplaySample], path: str | Path) -> None:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as f:
         for s in samples:
             f.write(s.to_json() + "\n")
 
 
-def read_jsonl(path: Path) -> list[ReplaySample]:
-    with path.open() as f:
+def read_jsonl(path: str | Path) -> list[ReplaySample]:
+    with Path(path).open() as f:
         return [ReplaySample.from_json(line) for line in f if line.strip()]
