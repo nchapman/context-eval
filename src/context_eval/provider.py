@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -147,14 +148,15 @@ class OpenRouterClient:
             }
 
         last_error: Exception | None = None
-        for attempt in range(4):  # 1 try + 3 retries on transient failures
+        for attempt in range(7):  # shared-pool rate limits can persist a while
             try:
                 if self._stream:
                     return self._post_stream(body)
                 return self._post(body)
             except _TransientProviderError as exc:
                 last_error = exc
-                time.sleep(min(2.0**attempt, 8.0))
+                # Exponential with jitter, capped: 1s..~45s
+                time.sleep(min(2.0**attempt, 45.0) * (0.5 + random.random()))
         raise ProviderError(f"transient failures exhausted: {last_error}")
 
     def _request_args(self, body: dict[str, Any]) -> dict[str, Any]:
