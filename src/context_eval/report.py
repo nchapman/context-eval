@@ -89,6 +89,10 @@ class Cell:
     overhead_tok_mean: float
     compactions_mean: float
     tool_calls_per_q: float
+    cost_per_q: float
+    overhead_cost_mean: float
+    cached_share: float
+    view_rewrite_rate: float
 
 
 def aggregate(runs: list[dict]) -> list[Cell]:
@@ -111,12 +115,26 @@ def aggregate(runs: list[dict]) -> list[Cell]:
         lo, hi = wilson_interval(successes, len(scored))
 
         pass_tok = sum(a["usage"]["prompt_tokens"] for a in answers)
+        prompt_tok_all = sum(a["usage"]["prompt_tokens"] for a in answers)
+        cached_tok_all = sum(a["usage"].get("cached_tokens", 0) for a in answers)
+        answer_cost = sum(a["usage"].get("cost", 0.0) for a in answers)
         conv_view = sum(sum(t["view_tokens"] for t in r["turns"]) for r in group)
         overhead = sum(
             r["overhead_usage"]["prompt_tokens"] + r["overhead_usage"]["completion_tokens"]
             for r in group
         )
+        overhead_cost = sum(r["overhead_usage"].get("cost", 0.0) for r in group)
         tools = sum(a.get("tool_calls", 0) for a in answers)
+        rewrites = 0
+        turn_count = 0
+        for r in group:
+            sig = None
+            for t in r["turns"]:
+                turn_count += 1
+                current = t.get("view_head_sig")
+                if sig is not None and current and current != sig:
+                    rewrites += 1
+                sig = current
 
         cells.append(
             Cell(
@@ -136,6 +154,10 @@ def aggregate(runs: list[dict]) -> list[Cell]:
                 overhead_tok_mean=overhead / len(group),
                 compactions_mean=sum(r["compactions"] for r in group) / len(group),
                 tool_calls_per_q=tools / max(1, len(answers)),
+                cost_per_q=answer_cost / max(1, len(answers)),
+                overhead_cost_mean=overhead_cost / len(group),
+                cached_share=cached_tok_all / prompt_tok_all if prompt_tok_all else 0.0,
+                view_rewrite_rate=rewrites / turn_count if turn_count else 0.0,
             )
         )
     return cells
@@ -173,18 +195,22 @@ def render_markdown(cells: list[Cell], curves: dict[str, list]) -> str:
         "# Results",
         "",
         "Accuracy = fraction of answered questions scoring >= 0.5; 95% Wilson CI.",
-        "Pass cost = answering prompt tokens per question. Conv cost = cumulative",
-        "resident-context tokens over the replay + compaction overhead (per run).",
+        "Costs are OpenRouter-reported USD (cache-aware): pass $/q = answering",
+        "calls per question; overhead $ = compaction calls per run. cached =",
+        "share of answering prompt tokens served from prefix cache. rewrite =",
+        "share of turns where the strategy changed its view head (cache bust).",
+        "conv view tok = cumulative resident-context tokens over the replay.",
         "",
-        "| strategy | runs | ovf | acc | 95% CI | pass tok/q | conv view tok |"
-        " overhead tok | cmp | tools/q |",
+        "| strategy | runs | ovf | acc | 95% CI | pass tok/q | pass $/q | cached |"
+        " rewrite | conv view tok | ohd $ | cmp | tools/q |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for c in cells:
         lines.append(
             f"| {c.label} | {c.runs} | {c.overflowed} | {c.acc:.2f} "
             f"| [{c.acc_lo:.2f}, {c.acc_hi:.2f}] | {c.pass_tok_per_q:,.0f} "
-            f"| {c.conv_view_tok_mean:,.0f} | {c.overhead_tok_mean:,.0f} "
+            f"| ${c.cost_per_q:.4f} | {c.cached_share:.0%} | {c.view_rewrite_rate:.0%} "
+            f"| {c.conv_view_tok_mean:,.0f} | ${c.overhead_cost_mean:.4f} "
             f"| {c.compactions_mean:.1f} | {c.tool_calls_per_q:.2f} |"
         )
 

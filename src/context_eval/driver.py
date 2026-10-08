@@ -11,6 +11,7 @@ is recorded. Overflow at replay time ends the run (the anchor failure mode).
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
@@ -50,6 +51,10 @@ class TurnRecord:
     message_id: str
     view_tokens: int
     overflow: bool
+    # Hash of the head of the assembled view: unchanged between turns means
+    # the prompt prefix is stable (provider-cache friendly); a change means
+    # the strategy rewrote its view (cache bust from that point on).
+    view_head_sig: str = ""
 
 
 @dataclass
@@ -206,12 +211,14 @@ def run_sample(
             view = strategy.assemble(engine)
             tokens = counter.count_messages(view)
             overflow = tokens > engine.budget.max_context_tokens
+            head = "\n".join(m.content for m in view[:3])[:500]
             result.turns.append(
                 TurnRecord(
                     index=i,
                     message_id=store.messages()[-1].id,
                     view_tokens=tokens,
                     overflow=overflow,
+                    view_head_sig=hashlib.sha1(head.encode()).hexdigest()[:12],
                 )
             )
             result.peak_view_tokens = max(result.peak_view_tokens, tokens)

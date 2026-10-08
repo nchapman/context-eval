@@ -11,7 +11,8 @@ from context_eval.report import (
 
 
 def make_run(strategy, sample, budget, scores, overflowed=False, depth_base=0, extra_answers=None):
-    usage = {"prompt_tokens": 1000, "completion_tokens": 10, "reasoning_tokens": 0, "llm_calls": 1}
+    usage = {"prompt_tokens": 1000, "completion_tokens": 10, "reasoning_tokens": 0,
+             "cached_tokens": 500, "cost": 0.001, "llm_calls": 1}
     answers = [
         {
             "question": f"q{i}",
@@ -34,7 +35,14 @@ def make_run(strategy, sample, budget, scores, overflowed=False, depth_base=0, e
         "sample_id": sample,
         "budget_tokens": budget,
         "turns": [
-            {"index": i, "message_id": f"m{i}", "view_tokens": 100, "overflow": False}
+            {
+                "index": i,
+                "message_id": f"m{i}",
+                "view_tokens": 100,
+                "overflow": False,
+                # head sig changes on turn 5 -> one rewrite
+                "view_head_sig": "aaa" if i < 5 else "bbb",
+            }
             for i in range(10)
         ],
         "answers": answers,
@@ -42,12 +50,16 @@ def make_run(strategy, sample, budget, scores, overflowed=False, depth_base=0, e
             "prompt_tokens": 1000 * len(answers),
             "completion_tokens": 0,
             "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "cost": 0.001 * len(answers),
             "llm_calls": len(answers),
         },
         "overhead_usage": {
             "prompt_tokens": 500,
             "completion_tokens": 100,
             "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "cost": 0.002,
             "llm_calls": 2,
         },
         "compactions": 3,
@@ -122,6 +134,10 @@ class TestAggregate:
         assert c.compactions_mean == 3.0
         # run1 tool_calls=[0,1,0]=1, run2=[0,1]=1 -> 2/5
         assert c.tool_calls_per_q == 0.4
+        assert c.cost_per_q == 0.001
+        assert c.overhead_cost_mean == 0.002
+        assert c.cached_share == 0.5
+        assert c.view_rewrite_rate == 0.1  # 1 rewrite per 10 turns, one run
 
     def test_error_answers_excluded_from_acc(self):
         err_answer = {

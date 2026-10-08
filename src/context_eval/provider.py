@@ -92,10 +92,13 @@ class _TransientProviderError(Exception):
 def _parse_usage(usage: Mapping[str, Any] | None) -> Usage:
     usage = usage or {}
     details = usage.get("completion_tokens_details") or {}
+    prompt_details = usage.get("prompt_tokens_details") or {}
     return Usage(
         prompt_tokens=usage.get("prompt_tokens", 0) or 0,
         completion_tokens=usage.get("completion_tokens", 0) or 0,
         reasoning_tokens=details.get("reasoning_tokens", 0) or 0,
+        cached_tokens=prompt_details.get("cached_tokens", 0) or 0,
+        cost=usage.get("cost", 0.0) or 0.0,
         llm_calls=1,
     )
 

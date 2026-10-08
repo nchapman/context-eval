@@ -39,6 +39,44 @@ def ok_response(
     }
 
 
+class TestParseUsage:
+    def test_reads_cost_and_cached_tokens(self):
+
+        import httpx
+
+        from context_eval.provider import OpenRouterClient
+        from context_eval.types import Usage
+
+        body = {
+            "usage": {
+                "prompt_tokens": 2855,
+                "completion_tokens": 16,
+                "cost": 0.00000564,
+                "prompt_tokens_details": {"cached_tokens": 2816},
+                "completion_tokens_details": {"reasoning_tokens": 13},
+            },
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+        }
+
+        def handler(request):
+            return httpx.Response(200, json=body)
+
+        client = OpenRouterClient(
+            api_key="k", stream=False, http_client=_client(handler)
+        )
+        result = client.complete([{"role": "user", "content": "q"}])
+
+        assert result.usage.cached_tokens == 2816
+        assert result.usage.cost == 0.00000564
+        assert result.usage.reasoning_tokens == 13
+
+        summed = Usage()
+        summed.add(result.usage)
+        summed.add(result.usage)
+        assert summed.cost == 2 * 0.00000564
+        assert summed.cached_tokens == 2 * 2816
+
+
 class TestOpenRouterClient:
     def test_sends_openai_wire_format_with_auth(self, tmp_path):
         captured = {}
