@@ -29,7 +29,7 @@ from context_eval.provider import (
 from context_eval.questions import Question
 from context_eval.store import TranscriptStore
 from context_eval.strategies.base import Engine, Strategy
-from context_eval.tokens import TokenCounter
+from context_eval.tokens import CachedCounter, TokenCounter
 from context_eval.types import Message, PromptMessage, Role, Usage
 
 SYSTEM_PROMPT = (
@@ -191,6 +191,7 @@ def run_sample(
     )
 
     store = TranscriptStore()
+    counter = CachedCounter(counter)  # per-turn view measurement needs memoization
     engine = _build_engine(
         strategy, store, counter, budget_tokens, questions, llm, system_prompt
     )

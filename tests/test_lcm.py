@@ -1,0 +1,226 @@
+from context_eval.budget import Budget
+from context_eval.store import TranscriptStore
+from context_eval.strategies.base import Engine
+from context_eval.strategies.lcm import LCMDagger
+from context_eval.tokens import CachedCounter, CharEstimator
+from context_eval.types import Role, Usage
+
+
+class ScriptedLLM:
+    """Returns queued summaries; counts calls; optional failure mode."""
+
+    def __init__(self, texts=None, fail=False):
+        self.texts = list(texts or [])
+        self.fail = fail
+        self.calls = []
+
+    def complete(self, messages, *, tools=None, max_tokens=1024, temperature=0.0):
+        from context_eval.provider import Completion
+
+        self.calls.append(messages[0]["content"])
+        if self.fail:
+            raise RuntimeError("summarizer unavailable")
+        text = self.texts.pop(0) if self.texts else "generic summary"
+        return Completion(
+            text=text,
+            tool_calls=(),
+            usage=Usage(prompt_tokens=100, completion_tokens=50, llm_calls=1),
+            finish_reason="stop",
+            model="fake",
+        )
+
+
+def make_engine(store, budget_tokens, llm=None):
+    return Engine(
+        store=store,
+        counter=CachedCounter(CharEstimator()),
+        budget=Budget(max_context_tokens=budget_tokens),
+        llm=llm,
+    )
+
+
+def fill_turns(store, n, body="x" * 40):
+    """n rounds of (user, assistant, tool): ~14 tokens per message."""
+    for i in range(n):
+        store.append(Role.USER, f"turn {i}: {body}")
+        store.append(Role.ASSISTANT, f"step {i}")
+        store.append(Role.TOOL, f"obs {i}: {body}")
+
+
+class TestThresholds:
+    def test_below_soft_threshold_stays_verbatim(self):
+        store = TranscriptStore()
+        fill_turns(store, 5)
+        llm = ScriptedLLM()
+        strategy = LCMDagger()
+        engine = make_engine(store, 10_000, llm)
+        strategy.on_turn(engine)
+
+        view = strategy.assemble(engine)
+        assert view == [m.to_prompt() for m in store.messages()]
+        assert llm.calls == []
+        assert strategy.stats().compactions == 0
+
+    def test_crossing_soft_compacts_oldest_chunk(self):
+        store = TranscriptStore()
+        fill_turns(store, 60)  # ~60*3*14 = 2520 tokens
+        llm = ScriptedLLM(["SUMMARY-1 [§m000001] fixed parser bug"])
+        strategy = LCMDagger()
+        engine = make_engine(store, 3_000, llm)  # soft=2100
+        strategy.on_turn(engine)
+
+        assert len(llm.calls) == 1
+        assert "SEGMENT" in llm.calls[0]
+        assert "[§m000001 " in llm.calls[0]  # chunk starts at the oldest message
+        view = strategy.assemble(engine)
+        flat = "\n".join(m.content for m in view)
+        assert "SUMMARY-1" in flat
+        assert "[Recent context" in flat
+        # Oldest messages replaced; frontier moved
+        assert engine.counter.count_messages(view) < engine.counter.count_messages(
+            [m.to_prompt() for m in store.messages()]
+        )
+        assert strategy._frontier > 0
+        stats = strategy.stats()
+        assert stats.compactions == 1
+        assert stats.overhead_usage.llm_calls == 1
+
+    def test_view_brought_back_under_soft_threshold(self):
+        store = TranscriptStore()
+        fill_turns(store, 80)
+        llm = ScriptedLLM([f"summary-{i}" for i in range(20)])
+        strategy = LCMDagger()
+        engine = make_engine(store, 3_000, llm)
+        strategy.on_turn(engine)
+
+        budget = engine.budget.max_context_tokens
+        assert engine.counter.count_messages(strategy.assemble(engine)) <= int(
+            budget * strategy.tau_soft
+        ) + 50  # tolerance for one chunk granularity
+
+
+class TestHierarchy:
+    def test_four_siblings_consolidate_into_depth2(self):
+        store = TranscriptStore()
+        fill_turns(store, 120)
+        llm = ScriptedLLM([f"d1-{i}" for i in range(4)] + ["d2-consolidated"])
+        strategy = LCMDagger()
+        engine = make_engine(store, 3_000, llm)
+        strategy.on_turn(engine)
+
+        nodes = [n for n in strategy._nodes if n is not None]
+        depths = sorted(n.depth for n in nodes)
+        assert 2 in depths, f"expected a D2 node, got depths {depths}"
+        d2 = next(n for n in nodes if n.depth == 2)
+        assert d2.summary == "d2-consolidated"
+        assert len(d2.covers) > 0
+        # Consolidation prompt received the child summaries
+        assert any("d1-0" in c and "SUMMARIES" in c for c in llm.calls)
+
+    def test_covers_track_message_ids_transitively(self):
+        store = TranscriptStore()
+        fill_turns(store, 120)
+        llm = ScriptedLLM([f"s{i}" for i in range(10)])
+        strategy = LCMDagger()
+        engine = make_engine(store, 3_000, llm)
+        strategy.on_turn(engine)
+
+        all_covers = set()
+        for n in strategy._nodes:
+            if n is not None:
+                all_covers.update(n.covers)
+        assert all_covers  # ids are real store ids
+        assert all(engine.store.get(mid) is not None for mid in list(all_covers)[:5])
+
+
+class TestEscalation:
+    def test_summarizer_failure_degrades_to_pointer_nodes(self):
+        store = TranscriptStore()
+        fill_turns(store, 60)
+        llm = ScriptedLLM(fail=True)
+        strategy = LCMDagger()
+        engine = make_engine(store, 3_000, llm)
+        strategy.on_turn(engine)  # must not raise
+
+        flat = "\n".join(m.content for m in strategy.assemble(engine))
+        assert "omitted deterministically" in flat
+        assert "history_recall" in flat
+        assert strategy._escalations >= 1
+
+    def test_no_llm_means_no_compaction(self):
+        store = TranscriptStore()
+        fill_turns(store, 60)
+        strategy = LCMDagger()
+        engine = make_engine(store, 3_000, None)
+        strategy.on_turn(engine)
+
+        assert strategy.stats().compactions >= 1  # pointer nodes
+        view = strategy.assemble(engine)
+        assert engine.counter.count_messages(view) < engine.counter.count_messages(
+            [m.to_prompt() for m in store.messages()]
+        )
+
+
+class TestRecallTools:
+    def test_search_and_recall_recover_needle(self):
+        store = TranscriptStore()
+        fill_turns(store, 3)
+        needle = "NOTE (workspace audit): the canary deployment token is ab12-CD34Q."
+        store.append(Role.TOOL, "z" * 200 + "\n" + needle)
+        strategy = LCMDagger()
+        engine = make_engine(store, 10_000, ScriptedLLM())
+        strategy.on_turn(engine)
+
+        tools = {t.schema.name: t for t in strategy.tools(engine)}
+        hits = tools["history_search"].execute({"query": "canary deployment token"})
+        # Search hits reference archive ids (snippets may legitimately reveal
+        # content — search is itself a recovery path)
+        assert any(mid in hits for mid in [m.id for m in store.messages()])
+
+        needle_id = next(m.id for m in store.messages() if needle in m.content)
+        recalled = tools["history_recall"].execute({"id": needle_id})
+        assert needle in recalled
+        assert strategy.stats().recall_tool_calls == 2
+
+    def test_unknown_recall_id_errors(self):
+        store = TranscriptStore()
+        store.append(Role.USER, "hi")
+        strategy = LCMDagger()
+        engine = make_engine(store, 1_000)
+        tools = {t.schema.name: t for t in strategy.tools(engine)}
+        assert tools["history_recall"].execute({"id": "m999"}).startswith("error:")
+
+    def test_search_handles_empty_query(self):
+        store = TranscriptStore()
+        store.append(Role.USER, "hello world")
+        strategy = LCMDagger()
+        engine = make_engine(store, 1_000)
+        tools = {t.schema.name: t for t in strategy.tools(engine)}
+        assert tools["history_search"].execute({"query": "  "}) == "no matches"
+
+
+class TestFtsIndex:
+    def test_ranks_relevant_matches(self):
+        from context_eval.strategies.lcm import _FtsIndex
+
+        idx = _FtsIndex()
+        store = TranscriptStore()
+        store.append(Role.USER, "the parser bug in tokenizer.rs")
+        store.append(Role.USER, "unrelated weather talk")
+        store.append(Role.USER, "fixed the parser in main.rs")
+        idx.index(store.messages())
+
+        hits = idx.search("parser")
+        ids = [mid for mid, _ in hits]
+        assert "m000001" in ids and "m000003" in ids
+        assert "m000002" not in ids
+
+    def test_snippet_contains_match(self):
+        from context_eval.strategies.lcm import _FtsIndex
+
+        idx = _FtsIndex()
+        store = TranscriptStore()
+        store.append(Role.TOOL, "output mentions frobnicator widget v2")
+        idx.index(store.messages())
+        _, snippet = idx.search("frobnicator")[0]
+        assert "frobnicator" in snippet

@@ -64,3 +64,23 @@ def default_counter() -> TokenCounter:
         except Exception:
             return CharEstimator()
     return CharEstimator()
+
+
+class CachedCounter(TokenCounter):
+    """Memoizes count_text by exact string.
+
+    Replay re-assembles views every turn; message content is immutable, so
+    caching by the string itself makes per-turn measurement linear in new
+    content instead of the whole history.
+    """
+
+    def __init__(self, inner: TokenCounter) -> None:
+        self._inner = inner
+        self._cache: dict[str, int] = {}
+
+    def count_text(self, text: str) -> int:
+        cached = self._cache.get(text)
+        if cached is None:
+            cached = self._inner.count_text(text)
+            self._cache[text] = cached
+        return cached

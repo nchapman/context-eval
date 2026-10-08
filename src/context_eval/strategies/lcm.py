@@ -1,0 +1,343 @@
+"""#2 — LCM: hierarchical summary DAG + recall tools (clean-room, arXiv:2605.04050).
+
+Effectively lossless: the active view is a bounded projection (older history
+replaced by depth-graded summaries), originals stay verbatim in the store
+and remain recoverable via search/recall tools.
+
+Clean-room mechanics implemented here:
+- two thresholds on the assembled view: ``tau_soft`` (compact between turns)
+  and ``tau_hard`` (compact before continuing); in this synchronous harness
+  both fire in ``on_turn`` — the async/blocking distinction is recorded as
+  trigger metadata for the writeup
+- compaction summarizes the oldest unsummarized chunk into a depth-1 node;
+  when four siblings accumulate at a depth they consolidate into a parent
+  (D1 session -> D2 phase -> D3+ durable), preserving [§id] references
+- escalation ladder: if summarization fails, degrade deterministically to
+  pointer nodes (segment omitted; recall tools still work)
+- tools: ``history_search`` (FTS5/BM25 over the verbatim archive, with a
+  token-overlap fallback) and ``history_recall`` (full content by id)
+
+Divergences from the paper (documented for the writeup): fixed sibling
+arity 4 instead of parameter sweeps; chunk size as a fraction of budget;
+per-model prompt scaling omitted.
+"""
+
+from __future__ import annotations
+
+import re
+import sqlite3
+from dataclasses import dataclass
+
+from context_eval.provider import ToolSchema
+from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
+from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
+from context_eval.types import PromptMessage, Role, Usage
+
+TAU_SOFT = 0.70  # fraction of budget: begin compacting between turns
+TAU_HARD = 0.90  # fraction of budget: compact before continuing
+CHUNK_FRAC = 0.25  # target chunk size as a fraction of budget
+SIBLINGS_TO_MERGE = 4
+SUMMARY_MAX_TOKENS = 700
+
+_D1_PROMPT = """Summarize this segment of an agent's coding session for future reference.
+Preserve exactly: the task/goal, key decisions and why, file paths touched,
+commands run and their outcomes, errors and resolutions, and every specific
+value (ids, tokens, numbers, names, versions).
+Mark where each fact came from as [§<id>]. Be terse.
+
+SEGMENT:
+{segment}"""
+
+_DN_PROMPT = """These are summaries of consecutive earlier segments of one agent session.
+Consolidate them into one higher-level summary. Keep every specific value
+(ids, tokens, numbers, names, versions) and their [§<id>] references; drop
+narrative. Be terse.
+
+SUMMARIES:
+{summaries}"""
+
+
+@dataclass
+class _Node:
+    depth: int  # 1 = leaf summary, 2+ = consolidations
+    summary: str
+    covers: tuple[str, ...]  # message ids covered (transitively)
+    trigger: str = "soft"
+
+
+class LCMDagger(Strategy):
+    name = "lcm"
+
+    def __init__(
+        self,
+        tau_soft: float = TAU_SOFT,
+        tau_hard: float = TAU_HARD,
+        chunk_frac: float = CHUNK_FRAC,
+    ) -> None:
+        self.tau_soft = tau_soft
+        self.tau_hard = tau_hard
+        self.chunk_frac = chunk_frac
+        self._nodes: list[_Node] = []
+        self._frontier = 0  # store messages below this index are summarized
+        self._overhead = Usage()
+        self._search_calls = 0
+        self._recall_calls = 0
+        self._escalations = 0
+        self._last_trigger = "none"
+        self._fts = _FtsIndex()
+
+    # --- compaction ---------------------------------------------------------
+
+    def on_turn(self, engine: Engine) -> None:
+        self._fts.index(engine.store.messages()[self._fts.indexed_upto :])
+        budget = engine.budget.max_context_tokens
+        view_tokens = engine.counter.count_messages(self._raw_view(engine))
+        if view_tokens <= int(budget * self.tau_soft):
+            self._last_trigger = "none"
+            return
+
+        self._last_trigger = (
+            "hard" if view_tokens > int(budget * self.tau_hard) else "soft"
+        )
+        chunk_target = max(1, int(budget * self.chunk_frac))
+        guard = 0
+        while (
+            engine.counter.count_messages(self._raw_view(engine)) > int(budget * self.tau_soft)
+            and self._frontier < len(engine.store.messages())
+        ):
+            guard += 1
+            if guard > 64:  # pathological churn guard
+                break
+            self._compact_oldest_chunk(engine, chunk_target)
+
+    def _compact_oldest_chunk(self, engine: Engine, chunk_target: int) -> None:
+        messages = engine.store.messages()
+        counter = engine.counter
+        chunk: list = []
+        tokens = 0
+        start = self._frontier
+        for m in messages[start:]:
+            cost = counter.count_text(m.content) + MESSAGE_OVERHEAD_TOKENS
+            if chunk and tokens + cost > max(chunk_target, cost):
+                break
+            chunk.append(m)
+            tokens += cost
+            if tokens >= chunk_target:
+                break
+        if not chunk:
+            return
+
+        summary = self._summarize_chunk(engine, chunk)
+        if summary is None:
+            # Escalation ladder: deterministic pointer node, still recallable
+            first, last = chunk[0].id, chunk[-1].id
+            summary = (
+                f"[segment §{first}..§{last} omitted deterministically; "
+                f"use history_search/history_recall to recover]"
+            )
+            self._escalations += 1
+
+        self._nodes.append(
+            _Node(
+                depth=1,
+                summary=summary,
+                covers=tuple(m.id for m in chunk),
+                trigger=self._last_trigger,
+            )
+        )
+        self._frontier = start + len(chunk)
+        self._consolidate(engine)
+
+    def _summarize_chunk(self, engine: Engine, chunk) -> str | None:
+        if engine.llm is None:
+            return None
+        segment = "\n".join(
+            f"[§{m.id} {m.role.value}] {m.content[:2_000]}" for m in chunk
+        )
+        try:
+            completion = engine.llm.complete(
+                [{"role": "user", "content": _D1_PROMPT.format(segment=segment)}],
+                max_tokens=SUMMARY_MAX_TOKENS,
+            )
+        except Exception:
+            return None
+        self._overhead.add(completion.usage)
+        text = completion.text.strip()
+        return text or None
+
+    def _consolidate(self, engine: Engine) -> None:
+        """Merge the oldest SIBLINGS_TO_MERGE siblings at any depth."""
+        merged = True
+        while merged:
+            merged = False
+            by_depth: dict[int, list[int]] = {}
+            for idx, node in enumerate(self._nodes):
+                if node is not None:
+                    by_depth.setdefault(node.depth, []).append(idx)
+            for depth in sorted(by_depth):
+                live = by_depth[depth]
+                if len(live) < SIBLINGS_TO_MERGE:
+                    continue
+                group = [self._nodes[i] for i in live[:SIBLINGS_TO_MERGE]]
+                parent = self._consolidate_group(engine, group)
+                if parent is None:
+                    continue  # summarizer unavailable: leave children as-is
+                for i in live[:SIBLINGS_TO_MERGE]:
+                    self._nodes[i] = None
+                self._nodes.append(parent)
+                merged = True
+                break
+
+    def _consolidate_group(self, engine: Engine, group: list[_Node]) -> _Node | None:
+        if engine.llm is None:
+            return None
+        summaries = "\n---\n".join(n.summary for n in group)
+        try:
+            completion = engine.llm.complete(
+                [{"role": "user", "content": _DN_PROMPT.format(summaries=summaries)}],
+                max_tokens=SUMMARY_MAX_TOKENS,
+            )
+        except Exception:
+            return None
+        self._overhead.add(completion.usage)
+        text = completion.text.strip()
+        if not text:
+            return None
+        covers = tuple(mid for n in group for mid in n.covers)
+        return _Node(depth=group[0].depth + 1, summary=text, covers=covers)
+
+    # --- view ----------------------------------------------------------------
+
+    def _raw_view(self, engine: Engine) -> list[PromptMessage]:
+        view: list[PromptMessage] = []
+        for node in self._nodes:
+            if node is not None:
+                view.append(
+                    PromptMessage(
+                        role=Role.USER,
+                        content=(
+                            f"[Earlier context — summarized (D{node.depth}, "
+                            f"§{node.covers[0]}..§{node.covers[-1]})]\n{node.summary}"
+                        ),
+                    )
+                )
+        if view:
+            view.append(PromptMessage(role=Role.USER, content="[Recent context — verbatim]"))
+        for m in engine.store.messages()[self._frontier :]:
+            view.append(m.to_prompt())
+        return view
+
+    def assemble(self, engine: Engine) -> list[PromptMessage]:
+        return self._raw_view(engine)
+
+    # --- recall tools ----------------------------------------------------------
+
+    def tools(self, engine: Engine) -> list[EngineTool]:
+        search = ToolSchema(
+            name="history_search",
+            description=(
+                "Search the verbatim archive of this session (full history, "
+                "including compacted segments). Returns matching message ids "
+                "with snippets; use history_recall to fetch full content."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "search terms"}
+                },
+                "required": ["query"],
+            },
+        )
+        recall = ToolSchema(
+            name="history_recall",
+            description="Return the full original content of a message by id.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "message id, e.g. m000014"}
+                },
+                "required": ["id"],
+            },
+        )
+
+        def do_search(args):
+            self._search_calls += 1
+            query = str(args.get("query", ""))
+            self._fts.index(engine.store.messages()[self._fts.indexed_upto :])
+            hits = self._fts.search(query, limit=5)
+            if not hits:
+                return "no matches"
+            return "\n".join(f"[§{mid}] {snip}" for mid, snip in hits)
+
+        def do_recall(args):
+            self._recall_calls += 1
+            mid = str(args.get("id", "")).strip().lstrip("§")
+            msg = engine.store.get(mid)
+            if msg is None:
+                return f"error: unknown id {mid!r}"
+            return f"[§{mid} {msg.role.value}]\n{msg.content}"
+
+        return [
+            EngineTool(schema=search, execute=do_search),
+            EngineTool(schema=recall, execute=do_recall),
+        ]
+
+    def stats(self) -> StrategyStats:
+        stats = StrategyStats()
+        stats.overhead_usage = self._overhead
+        stats.compactions = sum(
+            1 for n in self._nodes if n is not None
+        ) + self._escalations
+        stats.recall_tool_calls = self._search_calls + self._recall_calls
+        return stats
+
+
+class _FtsIndex:
+    """Incremental FTS5 index over the archive; token-overlap fallback."""
+
+    def __init__(self) -> None:
+        self.indexed_upto = 0
+        self._conn: sqlite3.Connection | None = None
+        self._fallback: list[tuple[str, str]] = []
+        try:
+            conn = sqlite3.connect(":memory:")
+            conn.execute("CREATE VIRTUAL TABLE msgs USING fts5(id UNINDEXED, content)")
+            self._conn = conn
+        except sqlite3.Error:
+            self._conn = None
+
+    def index(self, messages) -> None:
+        rows = [(m.id, m.content) for m in messages]
+        if self._conn is not None:
+            self._conn.executemany("INSERT INTO msgs (id, content) VALUES (?, ?)", rows)
+        else:
+            self._fallback.extend(rows)
+        self.indexed_upto += len(rows)
+
+    def search(self, query: str, limit: int = 5) -> list[tuple[str, str]]:
+        if not query.strip():
+            return []
+        if self._conn is not None:
+            cursor = self._conn.execute(
+                "SELECT id, snippet(msgs, 1, '>', '<', '…', 12) "
+                "FROM msgs WHERE msgs MATCH ? ORDER BY rank LIMIT ?",
+                (self._fts_query(query), limit),
+            )
+            return [(row[0], row[1]) for row in cursor]
+        return self._overlap_search(query, limit)
+
+    @staticmethod
+    def _fts_query(query: str) -> str:
+        terms = [t for t in re.findall(r"[\w]+", query) if len(t) > 1][:8]
+        return " OR ".join(terms) or query
+
+    def _overlap_search(self, query: str, limit: int) -> list[tuple[str, str]]:
+        terms = set(re.findall(r"\w+", query.lower()))
+        scored = []
+        for mid, content in self._fallback:
+            tokens = set(re.findall(r"\w+", content.lower()))
+            overlap = len(terms & tokens)
+            if overlap:
+                scored.append((-overlap, mid, content[:200]))
+        scored.sort()
+        return [(mid, snip) for _, mid, snip in scored[:limit]]

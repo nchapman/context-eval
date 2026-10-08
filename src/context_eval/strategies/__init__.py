@@ -3,12 +3,14 @@
 from context_eval.strategies.arc import ARCCitations
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
 from context_eval.strategies.full_context import FullContext
+from context_eval.strategies.lcm import LCMDagger
 from context_eval.strategies.sliding_window import SlidingWindow
 
 REGISTRY = {
     "full-context": FullContext,
     "sliding-window": SlidingWindow,
     "arc": ARCCitations,
+    "lcm": LCMDagger,
 }
 
 
@@ -27,6 +29,7 @@ __all__ = [
     "FullContext",
     "SlidingWindow",
     "ARCCitations",
+    "LCMDagger",
     "REGISTRY",
     "build",
 ]
