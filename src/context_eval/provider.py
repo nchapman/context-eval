@@ -17,7 +17,7 @@ import os
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
@@ -68,6 +68,20 @@ class Completion:
 
 class ProviderError(RuntimeError):
     pass
+
+
+class LLMClient(Protocol):
+    """Structural interface for anything that can complete() — the real
+    OpenRouterClient satisfies it, tests supply fakes."""
+
+    def complete(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        tools: Sequence[ToolSchema] | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+    ) -> Completion: ...
 
 
 class _TransientProviderError(Exception):

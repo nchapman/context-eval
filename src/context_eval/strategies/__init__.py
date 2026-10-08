@@ -4,6 +4,19 @@ from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyS
 from context_eval.strategies.full_context import FullContext
 from context_eval.strategies.sliding_window import SlidingWindow
 
+REGISTRY = {
+    "full-context": FullContext,
+    "sliding-window": SlidingWindow,
+}
+
+
+def build(name: str) -> Strategy:
+    try:
+        return REGISTRY[name]()
+    except KeyError:
+        raise ValueError(f"unknown strategy {name!r}; available: {sorted(REGISTRY)}") from None
+
+
 __all__ = [
     "Engine",
     "EngineTool",
@@ -11,4 +24,6 @@ __all__ = [
     "StrategyStats",
     "FullContext",
     "SlidingWindow",
+    "REGISTRY",
+    "build",
 ]

@@ -1,0 +1,321 @@
+"""Harness driver: open-loop replay + question answering under a fixed budget.
+
+Per replayed turn: append to the store, run the strategy's ``on_turn`` hook
+(may compact), and measure the assembled view (occupancy + budget check).
+No task LLM calls during replay — the recorded trajectory IS the history.
+
+At question time: assemble a fresh view, prepend the system prompt, expose
+the strategy's recall tools, and run a bounded tool loop. Every call's usage
+is recorded. Overflow at replay time ends the run (the anchor failure mode).
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from context_eval.budget import Budget
+from context_eval.datasets.base import ReplaySample
+from context_eval.judge import Score, score_question
+from context_eval.provider import (
+    LLMClient,
+    ToolSchema,
+    assistant_tool_message,
+    parse_tool_arguments,
+    tool_result_message,
+)
+from context_eval.questions import Question
+from context_eval.store import TranscriptStore
+from context_eval.strategies.base import Engine, Strategy
+from context_eval.tokens import TokenCounter
+from context_eval.types import Message, PromptMessage, Role, Usage
+
+SYSTEM_PROMPT = (
+    "You are answering questions about a previously recorded software "
+    "engineering session (an agent working in a repository, or a recorded "
+    "conversation). The messages below are that history, possibly compacted. "
+    "If details you need appear missing, use the provided recall tools to "
+    "retrieve them from the full archive. Answer concisely; when a question "
+    "asks for a specific value, reply with the exact value."
+)
+
+MAX_TOOL_STEPS = 6
+
+
+@dataclass
+class TurnRecord:
+    index: int
+    message_id: str
+    view_tokens: int
+    overflow: bool
+
+
+@dataclass
+class AnswerRecord:
+    question: str
+    gold: str
+    kind: str
+    category: str
+    prediction: str
+    score: float
+    score_method: str
+    usage: Usage = field(default_factory=Usage)
+    tool_calls: int = 0
+    model: str = ""
+    provider: str = ""
+
+
+@dataclass
+class RunResult:
+    strategy: str
+    dataset: str
+    sample_id: str
+    budget_tokens: int
+    turns: list[TurnRecord] = field(default_factory=list)
+    answers: list[AnswerRecord] = field(default_factory=list)
+    usage: Usage = field(default_factory=Usage)  # answering calls
+    overhead_usage: Usage = field(default_factory=Usage)  # strategy compaction
+    compactions: int = 0
+    peak_view_tokens: int = 0
+    overflowed_at: int | None = None
+    model: str = ""
+    provider: str = ""
+    error: str | None = None
+
+    @property
+    def mean_view_tokens(self) -> float:
+        return sum(t.view_tokens for t in self.turns) / max(1, len(self.turns))
+
+    @property
+    def mean_score(self) -> float:
+        return sum(a.score for a in self.answers) / max(1, len(self.answers))
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), default=str)
+
+
+def view_to_wire(view: Sequence[PromptMessage | Message]) -> list[dict[str, Any]]:
+    """Convert an assembled view to wire messages.
+
+    Assistant messages carrying tool_calls pair with the TOOL messages that
+    follow them (by call order). Unpaired tool observations render as user
+    messages with an observation prefix — same convention for every strategy.
+    """
+    wire: list[dict[str, Any]] = []
+    pending_call_ids: list[str] = []
+
+    for m in view:
+        tool_calls = m.meta.get("tool_calls") if hasattr(m, "meta") else None
+        if m.role is Role.ASSISTANT and tool_calls:
+            calls = [
+                {
+                    "id": tc.get("id") or f"call_{i}",
+                    "type": "function",
+                    "function": {
+                        "name": tc.get("function", {}).get("name", "tool"),
+                        "arguments": tc.get("function", {}).get("arguments", "{}"),
+                    },
+                }
+                for i, tc in enumerate(tool_calls)
+            ]
+            pending_call_ids = [c["id"] for c in calls]
+            wire.append(
+                {"role": "assistant", "content": m.content or None, "tool_calls": calls}
+            )
+        elif m.role is Role.TOOL and pending_call_ids:
+            wire.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": pending_call_ids.pop(0),
+                    "content": m.content,
+                }
+            )
+        elif m.role is Role.TOOL:
+            wire.append(
+                {"role": "user", "content": f"Observation (recorded):\n{m.content}"}
+            )
+        else:
+            wire.append({"role": m.role.value, "content": m.content})
+
+    return wire
+
+
+def _schema_tokens(schemas: Sequence[ToolSchema], counter: TokenCounter) -> int:
+    return sum(counter.count_text(json.dumps(s.to_wire())) for s in schemas)
+
+
+def _build_engine(
+    strategy: Strategy,
+    store: TranscriptStore,
+    counter: TokenCounter,
+    budget_tokens: int,
+    questions: Sequence[Question],
+    llm: LLMClient,
+    system_prompt: str,
+) -> Engine:
+    # Reserve the fixed costs every strategy pays identically (system prompt,
+    # tool schemas, the largest question) so the budget strategies see applies
+    # to their active view alone.
+    probe = Engine(store=store, counter=counter, budget=Budget(1), llm=llm)
+    tool_tokens = _schema_tokens([t.schema for t in strategy.tools(probe)], counter)
+    question_tokens = max((counter.count_text(q.question) for q in questions), default=0)
+    system_tokens = counter.count_text(system_prompt)
+    effective = max(1, budget_tokens - tool_tokens - question_tokens - system_tokens)
+    return Engine(
+        store=store,
+        counter=counter,
+        budget=Budget(max_context_tokens=effective),
+        llm=llm,
+    )
+
+
+def run_sample(
+    *,
+    strategy: Strategy,
+    sample: ReplaySample,
+    questions: Sequence[Question],
+    llm: LLMClient,
+    counter: TokenCounter,
+    budget_tokens: int,
+    system_prompt: str = SYSTEM_PROMPT,
+    max_answer_tokens: int = 512,
+    temperature: float = 0.0,
+) -> RunResult:
+    result = RunResult(
+        strategy=strategy.name,
+        dataset=sample.dataset,
+        sample_id=sample.sample_id,
+        budget_tokens=budget_tokens,
+    )
+
+    store = TranscriptStore()
+    engine = _build_engine(
+        strategy, store, counter, budget_tokens, questions, llm, system_prompt
+    )
+
+    # --- replay: append, compact, measure -----------------------------------
+    try:
+        for i, msg in enumerate(sample.messages):
+            store.append(msg.role, msg.content, meta=dict(msg.meta))
+            strategy.on_turn(engine)
+
+            view = strategy.assemble(engine)
+            tokens = counter.count_messages(view)
+            overflow = tokens > engine.budget.max_context_tokens
+            result.turns.append(
+                TurnRecord(
+                    index=i,
+                    message_id=store.messages()[-1].id,
+                    view_tokens=tokens,
+                    overflow=overflow,
+                )
+            )
+            result.peak_view_tokens = max(result.peak_view_tokens, tokens)
+            if overflow and result.overflowed_at is None:
+                result.overflowed_at = i
+    except Exception as exc:  # strategy/engine failure is part of the data
+        result.error = f"replay: {exc}"
+        _capture_stats(strategy, result)
+        return result
+
+    if result.overflowed_at is not None:
+        _capture_stats(strategy, result)  # anchor died: unanswered questions score 0
+        return result
+
+    # --- question time -------------------------------------------------------
+    try:
+        for q in questions:
+            record = _ask(
+                strategy=strategy,
+                engine=engine,
+                question=q,
+                llm=llm,
+                max_answer_tokens=max_answer_tokens,
+                temperature=temperature,
+                system_prompt=system_prompt,
+            )
+            result.answers.append(record)
+            result.usage.add(record.usage)
+            if record.model and not result.model:
+                result.model = record.model
+                result.provider = record.provider
+    except Exception as exc:
+        result.error = f"questions: {exc}"
+
+    _capture_stats(strategy, result)
+    return result
+
+
+def _ask(
+    *,
+    strategy: Strategy,
+    engine: Engine,
+    question: Question,
+    llm: LLMClient,
+    max_answer_tokens: int,
+    temperature: float,
+    system_prompt: str,
+) -> AnswerRecord:
+    view = strategy.assemble(engine)
+    engine_tools = strategy.tools(engine)
+    schemas = [t.schema for t in engine_tools]
+    by_name = {t.schema.name: t for t in engine_tools}
+
+    wire: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        *view_to_wire(view),
+        {"role": "user", "content": question.question},
+    ]
+
+    usage = Usage()
+    tool_call_count = 0
+    prediction = ""
+    model = provider = ""
+
+    for _step in range(MAX_TOOL_STEPS + 1):
+        completion = llm.complete(
+            wire,
+            tools=schemas or None,
+            max_tokens=max_answer_tokens,
+            temperature=temperature,
+        )
+        usage.add(completion.usage)
+        model, provider = completion.model or model, completion.provider or provider
+
+        if completion.tool_calls and _step < MAX_TOOL_STEPS:
+            tool_call_count += len(completion.tool_calls)
+            wire.append(assistant_tool_message(completion.tool_calls, completion.text))
+            for tc in completion.tool_calls:
+                engine_tool = by_name.get(tc.name)
+                if engine_tool is None:
+                    output = f"error: unknown tool {tc.name}"
+                else:
+                    output = engine_tool.execute(parse_tool_arguments(tc.arguments))
+                wire.append(tool_result_message(tc.id, str(output)))
+            continue
+
+        prediction = completion.text.strip()
+        break
+
+    score: Score = score_question(question, prediction)
+    return AnswerRecord(
+        question=question.question,
+        gold=question.answer,
+        kind=question.kind,
+        category=question.category,
+        prediction=prediction,
+        score=score.value,
+        score_method=score.method,
+        usage=usage,
+        tool_calls=tool_call_count,
+        model=model,
+        provider=provider,
+    )
+
+
+def _capture_stats(strategy: Strategy, result: RunResult) -> None:
+    stats = strategy.stats()
+    result.overhead_usage = stats.overhead_usage
+    result.compactions = stats.compactions

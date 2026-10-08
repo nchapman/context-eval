@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from context_eval.budget import Budget
-from context_eval.provider import OpenRouterClient, ToolSchema
+from context_eval.provider import LLMClient, ToolSchema
 from context_eval.store import TranscriptStore
 from context_eval.tokens import TokenCounter
 from context_eval.types import PromptMessage, Usage
@@ -41,7 +41,7 @@ class Engine:
     store: TranscriptStore
     counter: TokenCounter
     budget: Budget  # already net of system prompt + tool-schema overhead
-    llm: OpenRouterClient | None = None  # strategies that compact set this
+    llm: LLMClient | None = None  # strategies that compact set this
 
 
 @dataclass(frozen=True)
