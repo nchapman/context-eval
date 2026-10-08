@@ -57,11 +57,14 @@ class Usage:
 
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Subset of completion_tokens burned on reasoning (reasoning models).
+    reasoning_tokens: int = 0
     llm_calls: int = 0
 
     def add(self, other: Usage) -> None:
         self.prompt_tokens += other.prompt_tokens
         self.completion_tokens += other.completion_tokens
+        self.reasoning_tokens += other.reasoning_tokens
         self.llm_calls += other.llm_calls
 
     @property
