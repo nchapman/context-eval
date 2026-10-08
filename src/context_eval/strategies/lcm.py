@@ -210,17 +210,19 @@ class LCMDagger(Strategy):
 
     def _raw_view(self, engine: Engine) -> list[PromptMessage]:
         view: list[PromptMessage] = []
-        for node in self._nodes:
-            if node is not None:
-                view.append(
-                    PromptMessage(
-                        role=Role.USER,
-                        content=(
-                            f"[Earlier context — summarized (D{node.depth}, "
-                            f"§{node.covers[0]}..§{node.covers[-1]})]\n{node.summary}"
-                        ),
-                    )
+        live = [n for n in self._nodes if n is not None]
+        # Render in coverage order (covers[0] is chronological): consolidated
+        # parents are appended late but cover the oldest ids.
+        for node in sorted(live, key=lambda n: n.covers[0]):
+            view.append(
+                PromptMessage(
+                    role=Role.USER,
+                    content=(
+                        f"[Earlier context — summarized (D{node.depth}, "
+                        f"§{node.covers[0]}..§{node.covers[-1]})]\n{node.summary}"
+                    ),
                 )
+            )
         if view:
             view.append(PromptMessage(role=Role.USER, content="[Recent context — verbatim]"))
         for m in engine.store.messages()[self._frontier :]:
@@ -318,18 +320,24 @@ class _FtsIndex:
         if not query.strip():
             return []
         if self._conn is not None:
-            cursor = self._conn.execute(
-                "SELECT id, snippet(msgs, 1, '>', '<', '…', 12) "
-                "FROM msgs WHERE msgs MATCH ? ORDER BY rank LIMIT ?",
-                (self._fts_query(query), limit),
-            )
-            return [(row[0], row[1]) for row in cursor]
+            fts_query = self._fts_query(query)
+            if fts_query:
+                try:
+                    cursor = self._conn.execute(
+                        "SELECT id, snippet(msgs, 1, '>', '<', '…', 12) "
+                        "FROM msgs WHERE msgs MATCH ? ORDER BY rank LIMIT ?",
+                        (fts_query, limit),
+                    )
+                    return [(row[0], row[1]) for row in cursor]
+                except sqlite3.Error:
+                    pass  # malformed MATCH syntax: fall through to overlap
         return self._overlap_search(query, limit)
 
     @staticmethod
     def _fts_query(query: str) -> str:
+        """Quoted OR-joined terms; empty when nothing indexable (skips FTS)."""
         terms = [t for t in re.findall(r"[\w]+", query) if len(t) > 1][:8]
-        return " OR ".join(terms) or query
+        return " OR ".join(f'"{t}"' for t in terms)
 
     def _overlap_search(self, query: str, limit: int) -> list[tuple[str, str]]:
         terms = set(re.findall(r"\w+", query.lower()))

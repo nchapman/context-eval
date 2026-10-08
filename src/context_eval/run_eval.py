@@ -4,8 +4,8 @@ Runs (strategy x budget) over replay samples with needle questions, writes
 one RunResult JSONL line per run, prints a summary table.
 
 Example:
-  uv run python -m context_eval.run_eval --dataset swe --path data/swe_smoke.jsonl \
-      --strategies full-context,sliding-window --budgets 16000,32000 \
+  uv run python -m context_eval.run_eval --path data/swe_smoke.jsonl \
+      --strategies full-context,sliding-window,arc,lcm --budgets 16000,32000 \
       --samples 4 --needles 4 --out results/swe.jsonl
 """
 

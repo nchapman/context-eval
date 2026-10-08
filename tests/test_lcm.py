@@ -7,7 +7,7 @@ from context_eval.types import Role, Usage
 
 
 class ScriptedLLM:
-    """Returns queued summaries; counts calls; optional failure mode."""
+    """Returns queued summaries; fails loudly when the queue is exhausted."""
 
     def __init__(self, texts=None, fail=False):
         self.texts = list(texts or [])
@@ -20,7 +20,11 @@ class ScriptedLLM:
         self.calls.append(messages[0]["content"])
         if self.fail:
             raise RuntimeError("summarizer unavailable")
-        text = self.texts.pop(0) if self.texts else "generic summary"
+        if not self.texts:
+            raise AssertionError(
+                f"unexpected extra summarizer call #{len(self.calls) + 1}"
+            )
+        text = self.texts.pop(0)
         return Completion(
             text=text,
             tool_calls=(),
@@ -76,11 +80,11 @@ class TestThresholds:
         flat = "\n".join(m.content for m in view)
         assert "SUMMARY-1" in flat
         assert "[Recent context" in flat
-        # Oldest messages replaced; frontier moved
+        # Oldest messages replaced: their original text left the view
+        assert "turn 0:" not in flat
         assert engine.counter.count_messages(view) < engine.counter.count_messages(
             [m.to_prompt() for m in store.messages()]
         )
-        assert strategy._frontier > 0
         stats = strategy.stats()
         assert stats.compactions == 1
         assert stats.overhead_usage.llm_calls == 1
@@ -97,6 +101,7 @@ class TestThresholds:
         assert engine.counter.count_messages(strategy.assemble(engine)) <= int(
             budget * strategy.tau_soft
         ) + 50  # tolerance for one chunk granularity
+        assert len(llm.calls) <= 20  # queue exhausted -> test fails loudly
 
 
 class TestHierarchy:
@@ -108,14 +113,28 @@ class TestHierarchy:
         engine = make_engine(store, 3_000, llm)
         strategy.on_turn(engine)
 
-        nodes = [n for n in strategy._nodes if n is not None]
-        depths = sorted(n.depth for n in nodes)
-        assert 2 in depths, f"expected a D2 node, got depths {depths}"
-        d2 = next(n for n in nodes if n.depth == 2)
-        assert d2.summary == "d2-consolidated"
-        assert len(d2.covers) > 0
+        flat = "\n".join(m.content for m in strategy.assemble(engine))
+        assert "(D2, " in flat  # a consolidated parent is rendered
+        assert "d2-consolidated" in flat
         # Consolidation prompt received the child summaries
         assert any("d1-0" in c and "SUMMARIES" in c for c in llm.calls)
+
+    def test_nodes_render_in_chronological_order(self):
+        store = TranscriptStore()
+        fill_turns(store, 240)
+        llm = ScriptedLLM([f"s{i}" for i in range(20)])
+        strategy = LCMDagger()
+        engine = make_engine(store, 3_000, llm)
+        strategy.on_turn(engine)
+
+        flat = "\n".join(m.content for m in strategy.assemble(engine))
+        import re
+
+        ranges = re.findall(r"§(m\d+)\.\.§(m\d+)", flat)
+        assert len(ranges) >= 2
+        # Summary blocks must be ordered oldest -> newest by covered range
+        for (_prev_start, prev_stop), (next_start, _) in zip(ranges, ranges[1:], strict=False):
+            assert next_start >= prev_stop, f"summary order inverted: {ranges}"
 
     def test_covers_track_message_ids_transitively(self):
         store = TranscriptStore()
@@ -145,7 +164,7 @@ class TestEscalation:
         flat = "\n".join(m.content for m in strategy.assemble(engine))
         assert "omitted deterministically" in flat
         assert "history_recall" in flat
-        assert strategy._escalations >= 1
+        assert strategy.stats().compactions >= 1
 
     def test_no_llm_means_no_compaction(self):
         store = TranscriptStore()

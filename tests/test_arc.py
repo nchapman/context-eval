@@ -49,16 +49,28 @@ class TestARCAssemble:
         assert strategy.stats().compactions == 0
 
     def test_over_budget_cites_largest_observations_first(self):
-        store = build_store(n_obs=6, obs_len=2_000)  # ~500 tokens/obs; citations ~90
+        store = TranscriptStore()
+        store.append(Role.USER, "Fix the failing test")
+        # One huge observation among small ones: the huge one must be cited
+        store.append(Role.TOOL, "small-1 " + "a" * 200)
+        store.append(Role.TOOL, "HUGE " + "b" * 8_000)
+        store.append(Role.TOOL, "small-2 " + "c" * 200)
         strategy = ARCCitations()
-        view = strategy.assemble(make_engine(store, 1_500))
+        view = strategy.assemble(make_engine(store, 1_200))
 
-        assert strategy.stats().compactions >= 1
-        cited_contents = [m.content for m in view if m.content.startswith("[§")]
-        assert cited_contents  # something got compacted
-        # Verbatim messages still present
-        assert any(m.content == "Fix the failing test" for m in view)
-        assert any(m.content == "step 3" for m in view)
+        cited = [m.content for m in view if m.content.startswith("[§")]
+        assert len(cited) == 1
+        assert cited[0].startswith("[§m000003")  # the HUGE observation
+
+    def test_same_size_tiebreak_cites_oldest(self):
+        store = build_store(n_obs=6, obs_len=2_000)
+        strategy = ARCCitations()
+        engine = make_engine(store, 3_000)  # only one citation affordable
+        view = strategy.assemble(engine)
+
+        cited = [m.content for m in view if m.content.startswith("[§")]
+        assert len(cited) >= 1
+        assert cited[0].startswith("[§m000003")  # oldest tool observation
 
     def test_small_observations_stay_verbatim(self):
         store = build_store(n_obs=6, obs_len=2_000, small_obs=True)
@@ -82,11 +94,12 @@ class TestARCAssemble:
         strategy = ARCCitations()
 
         view1 = strategy.assemble(engine)
-        ids1 = strategy._cited_now
         view2 = strategy.assemble(engine)
 
         assert view1 == view2
-        assert ids1 == strategy._cited_now
+        assert strategy.stats().compactions == sum(
+            1 for m in view1 if m.content.startswith("[§")
+        )
 
     def test_needle_mid_observation_recoverable_only_via_recall(self):
         store = build_store(n_obs=4, obs_len=2_000)
@@ -103,13 +116,15 @@ class TestARCAssemble:
 
 class TestARCRecallTool:
     def test_recall_returns_full_original_content(self):
+        import re
+
         store = build_store(n_obs=4, obs_len=2_000)
         strategy = ARCCitations()
-        strategy.assemble(make_engine(store, 1_200))
+        view = strategy.assemble(make_engine(store, 1_200))
         engine = make_engine(store, 1_200)
         tool = strategy.tools(engine)[0]
 
-        cited_id = next(iter(strategy._cited_now))
+        cited_id = re.search(r"\[§(m\d+)", "\n".join(m.content for m in view)).group(1)
         result = tool.execute({"id": cited_id})
 
         assert result.startswith(f"[§{cited_id} full content]")

@@ -31,7 +31,7 @@ class Message:
     meta: Mapping[str, Any] = field(default_factory=dict)
 
     def to_prompt(self) -> PromptMessage:
-        return PromptMessage(role=self.role, content=self.content)
+        return PromptMessage(role=self.role, content=self.content, meta=dict(self.meta))
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,9 @@ class PromptMessage:
 
     role: Role
     content: str
+    # Carried through from the archive (e.g. tool_calls) so the driver can
+    # reconstruct the wire; synthesized entries (summaries) use their own.
+    meta: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

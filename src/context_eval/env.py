@@ -12,7 +12,12 @@ from pathlib import Path
 
 
 def load_env(path: str | Path = ".env") -> dict[str, str]:
-    """Populate unset env vars from a KEY=VALUE file. Returns what was loaded."""
+    """Populate unset env vars from a KEY=VALUE file. Returns what was loaded.
+
+    Only an allowlist of expected keys is honored, so a stray .env in the
+    working directory cannot redefine arbitrary process environment.
+    """
+    allowed = {"OPENROUTER_API_KEY"}
     file = Path(path)
     if not file.is_file():
         return {}
@@ -25,7 +30,7 @@ def load_env(path: str | Path = ".env") -> dict[str, str]:
         key, _, value = line.partition("=")
         key = key.strip()
         value = value.strip().strip("'\"")
-        if key and value and key not in os.environ:
+        if key in allowed and value and key not in os.environ:
             os.environ[key] = value
             loaded[key] = value
     return loaded

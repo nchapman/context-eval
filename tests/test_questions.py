@@ -103,4 +103,5 @@ class TestLocomoInjection:
 
     def test_capped_by_eligible_pool(self):
         sample, questions = inject_needles(locomo_sample(n_turns=2), n=5, seed=0)
-        assert len(questions) <= 2
+        assert len(questions) == 2  # exactly min(n, pool, len(FACTS))
+        assert len([m for m in sample.messages if m.meta.get("needle")]) == 2

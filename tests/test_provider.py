@@ -334,6 +334,62 @@ class TestStreaming:
         assert result.text == "ok"
         assert len(attempts) == 2
 
+    def test_stream_error_payload_raises_provider_error(self):
+        client = OpenRouterClient(
+            api_key="sk-test",
+            http_client=_client(
+                lambda r: httpx.Response(200, text=sse_text({"error": "upstream died"}))
+            ),
+        )
+        with pytest.raises(ProviderError, match="upstream died"):
+            client.complete([{"role": "user", "content": "q"}])
+
+    def test_stream_non_sse_body_raises(self):
+        # HTTP 200 with a plain JSON error body (not SSE)
+        client = OpenRouterClient(
+            api_key="sk-test",
+            http_client=_client(
+                lambda r: httpx.Response(200, json={"error": {"message": "no credits"}})
+            ),
+        )
+        with pytest.raises(ProviderError, match="no SSE data"):
+            client.complete([{"role": "user", "content": "q"}])
+
+    def test_stream_malformed_chunk_raises(self):
+        body = "data: {not json}\n\n"
+        client = OpenRouterClient(
+            api_key="sk-test", http_client=_client(lambda r: httpx.Response(200, text=body))
+        )
+        with pytest.raises(ProviderError, match="malformed SSE"):
+            client.complete([{"role": "user", "content": "q"}])
+
+    def test_stream_non_transient_http_error_no_retry(self):
+        attempts = []
+
+        def handler(request):
+            attempts.append(1)
+            return httpx.Response(401, text="bad key")
+
+        client = OpenRouterClient(api_key="sk-bad", http_client=_client(handler))
+        with pytest.raises(ProviderError, match="401"):
+            client.complete([{"role": "user", "content": "q"}])
+        assert len(attempts) == 1
+
+    def test_stream_midstream_disconnect_retries(self):
+        attempts = []
+
+        def handler(request):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise httpx.ReadError("connection reset")
+            done = sse_text({"choices": [{"index": 0, "delta": {"content": "ok"}}]})
+            return httpx.Response(200, text=done)
+
+        client = OpenRouterClient(api_key="sk-test", http_client=_client(handler))
+        result = client.complete([{"role": "user", "content": "q"}])
+        assert result.text == "ok"
+        assert len(attempts) == 2
+
     def test_stream_missing_usage_still_counts_call(self):
         chunks = [
             {

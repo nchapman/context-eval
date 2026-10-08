@@ -148,15 +148,17 @@ class OpenRouterClient:
             }
 
         last_error: Exception | None = None
-        for attempt in range(7):  # shared-pool rate limits can persist a while
+        attempts = 7  # shared-pool rate limits can persist a while
+        for attempt in range(attempts):
             try:
                 if self._stream:
                     return self._post_stream(body)
                 return self._post(body)
             except _TransientProviderError as exc:
                 last_error = exc
-                # Exponential with jitter, capped: 1s..~45s
-                time.sleep(min(2.0**attempt, 45.0) * (0.5 + random.random()))
+                if attempt < attempts - 1:
+                    # Exponential with jitter, capped: 1s..~45s
+                    time.sleep(min(2.0**attempt, 45.0) * (0.5 + random.random()))
         raise ProviderError(f"transient failures exhausted: {last_error}")
 
     def _request_args(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -207,7 +209,7 @@ class OpenRouterClient:
             usage=_parse_usage(data.get("usage")),
             finish_reason=choice.get("finish_reason", "unknown"),
             model=data.get("model", self.model),
-            provider=data.get("provider_name", "") or "",
+            provider=data.get("provider") or data.get("provider_name") or "",
         )
 
     def _post_stream(self, body: dict[str, Any]) -> Completion:
@@ -245,6 +247,7 @@ class OpenRouterClient:
         model = self.model
         provider = ""
         usage: Usage | None = None
+        saw_data = False
 
         for raw_line in response.iter_lines():
             if not raw_line.startswith("data:"):
@@ -252,7 +255,15 @@ class OpenRouterClient:
             payload = raw_line[len("data:") :].strip()
             if payload == "[DONE]":
                 break
-            chunk = json.loads(payload)
+            saw_data = True
+            try:
+                chunk = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                raise ProviderError(f"malformed SSE chunk: {payload[:200]!r}") from exc
+            if not isinstance(chunk, dict):
+                raise ProviderError(f"non-object SSE chunk: {payload[:200]!r}")
+            if chunk.get("error"):
+                raise ProviderError(str(chunk["error"])[:500])
 
             model = chunk.get("model") or model
             provider = chunk.get("provider") or chunk.get("provider_name") or provider
@@ -280,6 +291,10 @@ class OpenRouterClient:
                     slot["name"] += fn["name"]
                 if fn.get("arguments"):
                     slot["arguments"] += fn["arguments"]
+
+        if not saw_data:
+            # HTTP 200 with a non-SSE body (e.g. a JSON error payload)
+            raise ProviderError("stream contained no SSE data events")
 
         return Completion(
             text="".join(content_parts),

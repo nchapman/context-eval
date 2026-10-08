@@ -65,6 +65,7 @@ class AnswerRecord:
     tool_calls: int = 0
     model: str = ""
     provider: str = ""
+    error: str | None = None  # per-question failure (scored 0, run continues)
 
 
 @dataclass
@@ -107,7 +108,7 @@ def view_to_wire(view: Sequence[PromptMessage | Message]) -> list[dict[str, Any]
     pending_call_ids: list[str] = []
 
     for m in view:
-        tool_calls = m.meta.get("tool_calls") if hasattr(m, "meta") else None
+        tool_calls = m.meta.get("tool_calls") if m.meta else None
         if m.role is Role.ASSISTANT and tool_calls:
             calls = [
                 {
@@ -226,8 +227,8 @@ def run_sample(
         return result
 
     # --- question time -------------------------------------------------------
-    try:
-        for q in questions:
+    for q in questions:
+        try:
             record = _ask(
                 strategy=strategy,
                 engine=engine,
@@ -237,13 +238,24 @@ def run_sample(
                 temperature=temperature,
                 system_prompt=system_prompt,
             )
-            result.answers.append(record)
-            result.usage.add(record.usage)
-            if record.model and not result.model:
-                result.model = record.model
-                result.provider = record.provider
-    except Exception as exc:
-        result.error = f"questions: {exc}"
+        except Exception as exc:
+            # One bad question (provider failure, tool error) must not
+            # discard the remaining questions for this sample.
+            record = AnswerRecord(
+                question=q.question,
+                gold=q.answer,
+                kind=q.kind,
+                category=q.category,
+                prediction="",
+                score=0.0,
+                score_method="error",
+                error=str(exc)[:300],
+            )
+        result.answers.append(record)
+        result.usage.add(record.usage)
+        if record.model and not result.model:
+            result.model = record.model
+            result.provider = record.provider
 
     _capture_stats(strategy, result)
     return result
