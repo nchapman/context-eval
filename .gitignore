@@ -8,3 +8,4 @@ data/
 results/
 .env
 .pi/
+data/pi_sessions.jsonl
