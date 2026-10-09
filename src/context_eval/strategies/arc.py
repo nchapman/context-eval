@@ -27,7 +27,10 @@ RHO_TOKENS = 64
 _RECALL_NAME = "_recall"
 _RECALL_DESCRIPTION = (
     "Retrieve the full original content of a compacted tool observation. "
-    "Pass the id exactly as shown in a § citation (e.g. m000014)."
+    "Pass the id exactly as shown in a § citation (e.g. m000014). If a "
+    "detail you need is not visible in the view, call this repeatedly for "
+    "the § citations most likely to contain it (match their head:/tail: "
+    "previews to the question topic) before answering."
 )
 
 
