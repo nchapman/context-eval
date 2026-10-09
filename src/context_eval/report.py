@@ -238,15 +238,16 @@ def render_markdown(cells: list[Cell], curves: dict[str, list]) -> str:
         "share of turns where the strategy changed its view head (cache bust).",
         "conv view tok = cumulative resident-context tokens over the replay.",
         "",
-        "| strategy | tier | runs | ovf | acc | acc* | 95% CI | abst | confab | pass tok/q | pass $/q |"
-        " cached | rewrite | conv view tok | ohd $ | cmp | tools/q |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| strategy | tier | runs | ovf | acc | acc* | 95% CI | abst | confab |"
+        " pass tok/q | pass $/q | cached | rewrite | conv view tok | ohd $ | cmp | tools/q |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for c in cells:
         lines.append(
             f"| {c.label} | {c.tier} | {c.runs} | {c.overflowed} | {c.acc:.2f} "
             f"| {c.acc_penalized:.2f} "
-            f"| [{c.acc_lo:.2f}, {c.acc_hi:.2f}] | {c.abstain_rate:.0%} | {c.confab_rate:.0%} | {c.pass_tok_per_q:,.0f} "
+            f"| [{c.acc_lo:.2f}, {c.acc_hi:.2f}] | {c.abstain_rate:.0%} | {c.confab_rate:.0%} "
+            f"| {c.pass_tok_per_q:,.0f} "
             f"| ${c.cost_per_q:.4f} | {c.cached_share:.0%} | {c.view_rewrite_rate:.0%} "
             f"| {c.conv_view_tok_mean:,.0f} | ${c.overhead_cost_mean:.4f} "
             f"| {c.compactions_mean:.1f} | {c.tool_calls_per_q:.2f} |"
