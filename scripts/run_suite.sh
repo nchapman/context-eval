@@ -31,12 +31,13 @@ run3 () {  # run3 <tag> <path> <budgets> <samples> [extra args...]
   # Leg outputs are per-invocation: purge stale files so a resumed suite
   # can never cat old runs (append-mode once mixed killed+relaunched data).
   rm -f "$OUT/$tag"/g*.jsonl
+  local logtag=${tag//\//-}  # 'thinking/drop' -> 'thinking-drop' (logs dir is flat)
   local t0=$SECONDS
   for g in 1 2 3; do
     local grp; case $g in 1) grp=$G1;; 2) grp=$G2;; 3) grp=$G3;; esac
     uv run python -m context_eval.run_eval --path "$path" --strategies "$grp" \
       --budgets "$budgets" --samples "$samples" --needles 4 \
-      --out "$OUT/$tag/g$g.jsonl" "$@" > "$OUT/logs/$tag-g$g.log" 2>&1 &
+      --out "$OUT/$tag/g$g.jsonl" "$@" > "$OUT/logs/$logtag-g$g.log" 2>&1 &
     eval "P$g=$!"
   done
   wait $P1; wait $P2; wait $P3
@@ -54,7 +55,7 @@ skip swe || run3 swe data/swe_smoke.jsonl 64000,128000 22
 echo "=== leg 2: LoCoMo (10 x 7 x {8K,16K}) ==="
 # QA capped at 12/sample (needles always kept): full LoCoMo QA sets run
 # 109-203 questions/run, which is a 10h+ leg for no statistical gain.
-run3 locomo data/locomo.jsonl 8000,16000 10 --max-questions 16
+skip locomo || run3 locomo data/locomo.jsonl 8000,16000 10 --max-questions 16
 
 if [ "${1:-}" != "--skip-recap" ] && ! skip recap; then
   echo "=== leg 3a: fill thinking recap cache ==="

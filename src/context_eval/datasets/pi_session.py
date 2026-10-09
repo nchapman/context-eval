@@ -25,6 +25,7 @@ Thinking policy (assistant "thinking" content parts):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -44,6 +45,7 @@ def convert(
     path: str | Path,
     max_tokens: int | None = None,
     thinking: str = "drop",
+    recap_cache: dict[str, str] | None = None,
 ) -> ReplaySample:
     """Parse one pi session transcript into a ReplaySample.
 
@@ -96,6 +98,14 @@ def convert(
             thinking_parts += len(thinking_texts)
             if thinking == "persist" and thinking_texts:
                 body = "\n".join(thinking_texts + prose_texts)
+            elif thinking == "recap" and thinking_texts:
+                # ChatGPT-style reasoning recaps: each thinking block
+                # replaced by its cached <=2-sentence summary at record time.
+                # Key must match scripts/thinking_arms.py recap: sha1 of the
+                # joined thinking text, rstrip'd. Uncached blocks are dropped.
+                joined = "\n".join(thinking_texts).rstrip("\n")
+                recap = (recap_cache or {}).get(hashlib.sha1(joined.encode()).hexdigest(), "")
+                body = "\n".join(([recap] if recap.strip() else []) + prose_texts)
             else:
                 body = "\n".join(prose_texts)
             messages.append(ReplayMessage(role=role, content=body))

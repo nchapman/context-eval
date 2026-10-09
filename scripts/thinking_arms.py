@@ -76,6 +76,18 @@ def build(path: Path, span_tokens: int, seed: int, needles: int) -> None:
         out.write_text(sliced.to_json() + "\n")
         print(f"wrote {out}")
 
+    # Recap arm: emit only when the recap cache exists (filled by `recap`).
+    cache_path = DATA / "thinking_recaps.json"
+    if cache_path.is_file():
+        cache = json.loads(cache_path.read_text())
+        recap_full = convert(path, thinking="recap", recap_cache=cache)
+        sliced = _slice(recap_full, n, dataset="pi-thinking-recap")
+        total = counter.count_messages(sliced.messages)
+        print(f"{'recap':8} {len(sliced.messages)} msgs, {total:,} tokens")
+        out = DATA / "thinking_recap.jsonl"
+        out.write_text(sliced.to_json() + "\n")
+        print(f"wrote {out}")
+
 
 def recap(path: Path, span_tokens: int, batch: int) -> None:
     """Summarize thinking blocks into data/thinking_recaps.json (hash-keyed).
