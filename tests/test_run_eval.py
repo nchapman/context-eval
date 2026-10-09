@@ -135,6 +135,6 @@ def test_rerun_truncates_output(tmp_path, monkeypatch):
         rc = re_mod.main(["--path", str(sample), "--strategies", "sliding-window",
                           "--budgets", "8000", "--samples", "1", "--out", str(out)])
         assert rc == 0
-    lines = [json.loads(l) for l in out.read_text().splitlines()]
+    lines = [json.loads(ln) for ln in out.read_text().splitlines()]
     assert len(lines) == 1  # replaced, not appended: no stale, no doubling
     assert "stale" not in lines[0]
