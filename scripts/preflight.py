@@ -26,7 +26,7 @@ from context_eval.run_eval import build_questions  # noqa: E402
 # - answering: 1 LLM call/question + tool steps (memory arms ~1.5x)
 # - judging:   1 call/question
 # - compaction: flat ~raw/budget calls, lcm ~raw/(0.25*budget)*1.3,
-#               representation ~raw/budget (same cadence as flat),
+#               representation ~raw/2048 (amortized delta-triggered merges),
 #               everything else 0
 CALLS_PER_SEC_PER_WORKER = 0.35  # sequential-in-worker, flash latency
 WORKERS = 3

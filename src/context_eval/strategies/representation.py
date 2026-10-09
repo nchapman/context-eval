@@ -42,6 +42,13 @@ from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
 from context_eval.types import PromptMessage, Role, Usage
 
 MEMORY_TARGET_TOKENS = 2048  # resident cap the update prompt enforces
+# Merge trigger: fold this many NEW tokens into the memory per update.
+# Amortized small-batch merges are part of the mechanism (Honcho's deriver
+# processes message batches, not the whole history): each update input is
+# bounded by (memory + UPDATE_DELTA_TOKENS) ~= 4.5K tokens, so a single
+# call's reasoning cannot blank the arm the way tau-batched giant folds
+# did (pilot: completion=4096/reasoning=4096, zero content emitted).
+UPDATE_DELTA_TOKENS = 2048
 
 _MEMORY_PROMPT = """You maintain the long-term memory of an agent's coding session.
 CURRENT MEMORY is below, then NEW MESSAGES since the last update.
@@ -73,6 +80,8 @@ class RepresentationMemory(Strategy):
         self._keep_tail_frac = keep_tail_frac
         self._memory: str = ""
         self._folded_upto = 0  # store messages merged into the memory
+        self._seen_upto = 0  # store messages already counted toward _delta_tokens
+        self._delta_tokens = 0  # un-folded tokens accumulated since the last fold
         self._updates = 0
         self._empty = 0
         self._overhead = Usage()
@@ -111,17 +120,24 @@ class RepresentationMemory(Strategy):
         messages = engine.store.messages()
         if len(messages) > self._index.indexed_upto:
             self._index.index(messages[self._index.indexed_upto :])
+        if len(messages) > self._seen_upto:
+            self._delta_tokens += sum(
+                engine.counter.count_message(m) for m in messages[self._seen_upto :]
+            )
+            self._seen_upto = len(messages)
         tail, tail_start = self._tail(engine)
-        if self._raw_view_tokens(engine) <= self._tau * engine.budget.max_context_tokens:
+        over_tau = self._raw_view_tokens(engine) > self._tau * engine.budget.max_context_tokens
+        delta_ready = self._delta_tokens >= UPDATE_DELTA_TOKENS
+        if not (over_tau or delta_ready):
             return
         if engine.llm is None or tail_start <= self._folded_upto:
             return  # nothing new to fold yet
 
         # Merge only the new delta into the memory: the prompt never
         # contains history older than the memory itself already covers.
+        folded = messages[self._folded_upto : tail_start]
         delta = "\n".join(
-            f"[§{m.id}] {m.role.value}: {m.content}"
-            for m in messages[self._folded_upto : tail_start]
+            f"[§{m.id}] {m.role.value}: {m.content}" for m in folded
         )
         prompt = _MEMORY_PROMPT.format(
             target=MEMORY_TARGET_TOKENS,
@@ -139,6 +155,9 @@ class RepresentationMemory(Strategy):
         # flat's `or self._summary`).
         if completion.text.strip():
             self._memory = completion.text.strip()
+        self._delta_tokens = sum(
+            engine.counter.count_message(m) for m in messages[tail_start:]
+        )
         self._folded_upto = tail_start
         self._updates += 1
 
