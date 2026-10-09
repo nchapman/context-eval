@@ -258,3 +258,29 @@ class TestFtsIndex:
         idx.index(store.messages())
         _, snippet = idx.search("frobnicator")[0]
         assert "frobnicator" in snippet
+
+
+class TestTopicsLine:
+    """P1 prompt variant: summaries must enumerate named topics so the
+    continuity probe measures the mechanism, not an unrequested omission."""
+
+    def test_d1_prompt_requests_topics_line(self):
+        from context_eval.strategies.lcm import _D1_PROMPT
+
+        assert "TOPICS line" in _D1_PROMPT
+        assert "never omit" in _D1_PROMPT.lower()
+
+    def test_dn_prompt_unions_children_topics(self):
+        from context_eval.strategies.lcm import _DN_PROMPT
+
+        assert "union of the children" in _DN_PROMPT
+        assert "never drop a named topic" in _DN_PROMPT
+
+    def test_flat_shares_the_d1_topics_instruction(self):
+        # flat imports _D1_PROMPT from lcm: the inventory instruction must
+        # be symmetric across both summarizing arms or the comparison is
+        # confounded.
+        from context_eval.strategies.flat_compact import _D1_PROMPT as flat_d1
+        from context_eval.strategies.lcm import _D1_PROMPT as lcm_d1
+
+        assert flat_d1 is lcm_d1

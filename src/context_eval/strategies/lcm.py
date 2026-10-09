@@ -47,6 +47,9 @@ Preserve exactly: the task/goal, key decisions and why, file paths touched,
 commands run and their outcomes, errors and resolutions, and every specific
 value (ids, tokens, numbers, names, versions).
 Mark where each fact came from as [§<id>]. Be terse.
+End with a TOPICS line: every named project, topic, codename, or
+investigation mentioned in this segment, as `name|status` (status = open,
+resolved, paused, in progress, ...). Never omit a named topic.
 
 SEGMENT:
 {segment}"""
@@ -55,6 +58,8 @@ _DN_PROMPT = """These are summaries of consecutive earlier segments of one agent
 Consolidate them into one higher-level summary. Keep every specific value
 (ids, tokens, numbers, names, versions) and their [§<id>] references; drop
 narrative. Be terse.
+Your TOPICS line is the union of the children's TOPICS lines: deduplicate
+by name, keep the latest status, never drop a named topic.
 
 SUMMARIES:
 {summaries}"""
