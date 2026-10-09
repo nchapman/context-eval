@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
 
     runs = 0
     grouped: dict[tuple[str, int], list] = defaultdict(list)
-    with args.out.open("a") as out_file:
+    with args.out.open("w") as out_file:  # truncate: reruns replace, never accumulate
         for sample in samples:
             injected, questions = build_questions(
                 sample, args.needles, args.seed, args.max_questions, args.skip_locomo_qa

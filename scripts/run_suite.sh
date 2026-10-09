@@ -28,6 +28,9 @@ G3="lcm"                                              # heaviest: D1 + consolida
 
 run3 () {  # run3 <tag> <path> <budgets> <samples> [extra args...]
   local tag=$1 path=$2 budgets=$3 samples=$4; shift 4
+  # Leg outputs are per-invocation: purge stale files so a resumed suite
+  # can never cat old runs (append-mode once mixed killed+relaunched data).
+  rm -f "$OUT/$tag"/g*.jsonl
   local t0=$SECONDS
   for g in 1 2 3; do
     local grp; case $g in 1) grp=$G1;; 2) grp=$G2;; 3) grp=$G3;; esac

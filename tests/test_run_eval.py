@@ -101,3 +101,40 @@ def test_question_cap_preserves_all_needles():
     kinds = [q.kind for q in questions]
     assert kinds.count("needle") == 4  # all needles kept
     assert kinds.count("locomo") == 12  # QA capped, seeded subset
+
+def test_rerun_truncates_output(tmp_path, monkeypatch):
+    """Output files replace, never accumulate: append mode once mixed a
+    killed uncapped leg with a relaunched capped one. Behavioral -- main()
+    is driven end to end with the network and replay stubbed."""
+    import json
+
+    from context_eval import run_eval as re_mod
+    from context_eval.driver import RunResult
+
+    sample = tmp_path / "s.jsonl"
+    sample.write_text(json.dumps({
+        "dataset": "swe", "sample_id": "x1",
+        "messages": [{"role": "user", "content": "hi", "meta": {}}],
+        "meta": {},
+    }) + "\n")
+
+    class FakeClient:
+        pass
+
+    def fake_run_sample(**kwargs):
+        return RunResult(strategy=kwargs["strategy"].name, dataset="swe",
+                         sample_id="x1", budget_tokens=kwargs["budget_tokens"])
+
+    monkeypatch.setattr(re_mod, "OpenRouterClient", lambda: FakeClient())
+    monkeypatch.setattr(re_mod, "default_counter", lambda: "c")
+    monkeypatch.setattr(re_mod, "run_sample", fake_run_sample)
+
+    out = tmp_path / "runs.jsonl"
+    out.write_text('{"stale": true}\n')  # pre-existing junk from a killed run
+    for _ in range(2):
+        rc = re_mod.main(["--path", str(sample), "--strategies", "sliding-window",
+                          "--budgets", "8000", "--samples", "1", "--out", str(out)])
+        assert rc == 0
+    lines = [json.loads(l) for l in out.read_text().splitlines()]
+    assert len(lines) == 1  # replaced, not appended: no stale, no doubling
+    assert "stale" not in lines[0]
