@@ -46,6 +46,7 @@ class FlatCompact(Strategy):
         self._summary: str = ""
         self._summarized_upto = 0  # store messages folded into the summary
         self._compactions = 0
+        self._empty = 0
         self._overhead = Usage()
         self._index = _FtsIndex()
 
@@ -105,6 +106,8 @@ class FlatCompact(Strategy):
         )
         if completion.usage:
             self._overhead.add(completion.usage)
+        if not completion.text.strip() and completion.finish_reason == "length":
+            self._empty += 1
         self._summary = completion.text.strip() or self._summary
         self._summarized_upto = tail_start
         self._compactions += 1
@@ -175,4 +178,8 @@ class FlatCompact(Strategy):
         ]
 
     def stats(self) -> StrategyStats:
-        return StrategyStats(overhead_usage=self._overhead, compactions=self._compactions)
+        return StrategyStats(
+            overhead_usage=self._overhead,
+            compactions=self._compactions,
+            empty_summaries=self._empty,
+        )

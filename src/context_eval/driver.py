@@ -90,6 +90,7 @@ class RunResult:
     model: str = ""
     provider: str = ""
     error: str | None = None
+    empty_summaries: int = 0  # compactions that produced no content (see StrategyStats)
 
     @property
     def mean_view_tokens(self) -> float:
@@ -353,3 +354,4 @@ def _capture_stats(strategy: Strategy, result: RunResult) -> None:
     stats = strategy.stats()
     result.overhead_usage = stats.overhead_usage
     result.compactions = stats.compactions
+    result.empty_summaries = stats.empty_summaries

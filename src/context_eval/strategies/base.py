@@ -30,6 +30,11 @@ class StrategyStats:
     overhead_usage: Usage = field(default_factory=Usage)
     compactions: int = 0
     recall_tool_calls: int = 0
+    # Compactions whose completion returned no content (reasoning burned the
+    # max_tokens cap, provider failure, ...). Zero is the invariant; nonzero
+    # means the arm is running with blank summaries and every downstream
+    # metric for it is suspect.
+    empty_summaries: int = 0
     # Peak tokens in any assembled active view (harness records per turn).
     peak_context_tokens: int = 0
 

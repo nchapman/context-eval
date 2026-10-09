@@ -284,3 +284,19 @@ class TestTopicsLine:
         from context_eval.strategies.lcm import _D1_PROMPT as lcm_d1
 
         assert flat_d1 is lcm_d1
+
+
+class TestTopicsSwitch:
+    def test_env_switch_controls_inventory_instruction(self, monkeypatch):
+        import importlib
+
+        import context_eval.strategies.lcm as lcm_mod
+
+        monkeypatch.setenv("CONTEXT_EVAL_TOPICS_LINES", "0")
+        importlib.reload(lcm_mod)
+        assert "TOPICS" not in lcm_mod._D1_PROMPT
+        assert "TOPICS" not in lcm_mod._DN_PROMPT
+        monkeypatch.setenv("CONTEXT_EVAL_TOPICS_LINES", "1")
+        importlib.reload(lcm_mod)
+        assert "TOPICS line" in lcm_mod._D1_PROMPT
+        assert "union of the children" in lcm_mod._DN_PROMPT

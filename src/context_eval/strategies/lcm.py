@@ -24,6 +24,7 @@ per-model prompt scaling omitted.
 
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -40,29 +41,49 @@ SIBLINGS_TO_MERGE = 4
 # and observed per-call reasoning runs p99~256 / max~395 tokens on this
 # model -- a tight cap truncates summaries mid-sentence, silently
 # degrading the DAG. View size is enforced at assembly, not here.
-SUMMARY_MAX_TOKENS = 2048
+# max_tokens is a REASONING+content cap on deepseek-flash: big summarization
+# segments reason for 2000+ tokens and 2048 truncates content to nothing
+# (measured: reasoning_tok 2039/2048, 18 chars emitted, flat ran summary-less
+# through the whole suite). 4096 gives reasoning headroom above terse content,
+# matching the recap call's budget.
+SUMMARY_MAX_TOKENS = 4096
 
-_D1_PROMPT = """Summarize this segment of an agent's coding session for future reference.
+# Experiment switch: CONTEXT_EVAL_TOPICS_LINES=0 assembles the pre-P1
+# prompts (no inventory instruction) so control/treatment legs can run
+# against the same code with only the prompt differing.
+_TOPICS_IN_PROMPTS = os.environ.get("CONTEXT_EVAL_TOPICS_LINES", "1") != "0"
+
+_D1_PROMPT = (
+    """Summarize this segment of an agent's coding session for future reference.
 Preserve exactly: the task/goal, key decisions and why, file paths touched,
 commands run and their outcomes, errors and resolutions, and every specific
 value (ids, tokens, numbers, names, versions).
 Mark where each fact came from as [§<id>]. Be terse.
-End with a TOPICS line: every named project, topic, codename, or
-investigation mentioned in this segment, as `name|status` (status = open,
-resolved, paused, in progress, ...). Never omit a named topic.
+"""
+    + (
+        "End with a TOPICS line: every named project, topic, codename, or\n"
+        "investigation mentioned in this segment, as `name|status` (status = open,\n"
+        "resolved, paused, in progress, ...). Never omit a named topic.\n"
+        if _TOPICS_IN_PROMPTS
+        else ""
+    )
+    + "\nSEGMENT:\n{segment}"
+)
 
-SEGMENT:
-{segment}"""
-
-_DN_PROMPT = """These are summaries of consecutive earlier segments of one agent session.
+_DN_PROMPT = (
+    """These are summaries of consecutive earlier segments of one agent session.
 Consolidate them into one higher-level summary. Keep every specific value
 (ids, tokens, numbers, names, versions) and their [§<id>] references; drop
 narrative. Be terse.
-Your TOPICS line is the union of the children's TOPICS lines: deduplicate
-by name, keep the latest status, never drop a named topic.
-
-SUMMARIES:
-{summaries}"""
+"""
+    + (
+        "Your TOPICS line is the union of the children's TOPICS lines: deduplicate\n"
+        "by name, keep the latest status, never drop a named topic.\n"
+        if _TOPICS_IN_PROMPTS
+        else ""
+    )
+    + "\nSUMMARIES:\n{summaries}"
+)
 
 
 @dataclass
@@ -91,6 +112,7 @@ class LCMDagger(Strategy):
         self._search_calls = 0
         self._recall_calls = 0
         self._escalations = 0
+        self._empty_summaries = 0
         self._last_trigger = "none"
         self._fts = _FtsIndex()
 
@@ -172,6 +194,8 @@ class LCMDagger(Strategy):
             return None
         self._overhead.add(completion.usage)
         text = completion.text.strip()
+        if not text and completion.finish_reason == "length":
+            self._empty_summaries += 1
         return text or None
 
     def _consolidate(self, engine: Engine) -> None:
@@ -300,6 +324,7 @@ class LCMDagger(Strategy):
             1 for n in self._nodes if n is not None
         ) + self._escalations
         stats.recall_tool_calls = self._search_calls + self._recall_calls
+        stats.empty_summaries = self._empty_summaries
         return stats
 
 

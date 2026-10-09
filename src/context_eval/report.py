@@ -398,6 +398,11 @@ def main(argv: list[str] | None = None) -> int:
     errs = [r for r in runs if r.get("error")]
     if errs:
         print(f"SANITY: {len(errs)}/{len(runs)} runs errored; first: {errs[0]['error'][:120]}")
+    empties = [r for r in runs if r.get("empty_summaries")]
+    if empties:
+        total = sum(r["empty_summaries"] for r in empties)
+        print(f"SANITY: {total} empty summaries across {len(empties)} runs "
+              f"(reasoning burned the cap; those arms ran summary-less)")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     report = render_markdown(cells, curves)
