@@ -242,3 +242,22 @@ mechanically (truncation load). Incremental merge is the architecture-level
 alternative — and if it wins, Honcho's docker stack (per-module OpenRouter
 routing is first-class: `DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL`) is the
 calibration point for what their full machinery adds on top.
+
+**Battery result (LoCoMo n=10, 8K/16K, P0' baselines, 0 errors):**
+continuity recall/abstention — representation 54%/20% @8K and 68%/10% @16K,
+vs flat 34%/40% and 62%/30%, lcm 12%/80% and 52%/40%, instructed flat
+(P1') 19%/70% and 30%/60%. Best continuity arm at both budgets with the
+lowest abstention; QA parity with flat/retrieval (68-70% everywhere);
+overhead ~55K tok/run (flat: 34K@8K, 18K@16K; lcm: 70K@8K, 30K@16K) —
+the amortization premium, priced.
+
+**Findings.** (1) Inventory persistence is architectural, not promptable:
+maintained state beats both uninstructed folding and instructed folding
+(which degrades mechanically via truncation load). (2) The arm degrades
+gracefully under the shared truncation physics: 29-43% of merges came
+back empty (completion-cap burn, same root cause measured at every level
+this project) yet recall held — memory preserved + tail + tools absorb
+the misses — whereas a fold arm's empty compaction wipes its entire map.
+(3) Headroom: reasoning-separated merges (deferred 8192/provider-param
+experiment) should recover the empty merges; continuity could rise
+further at unchanged architecture.
