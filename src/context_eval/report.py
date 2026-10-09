@@ -320,6 +320,23 @@ def main(argv: list[str] | None = None) -> int:
     cells = aggregate(runs)
     curves = depth_curves(runs)
 
+    # Sanity gate: surface pathological cells loudly instead of letting them
+    # render as clean zeros. A cell with answers but 0.00 acc is the classic
+    # provider-failure signature (e.g. the 429-exhaustion noise that once
+    # looked like an accuracy delta); a cell with zero answered questions
+    # must be explained by overflow, or something upstream is broken.
+    for c in cells:
+        if c.questions == 0:
+            if c.overflowed + c.errored < c.runs:
+                print(f"SANITY: {c.label} answered nothing on {c.runs} runs "
+                      f"but only {c.overflowed + c.errored} overflowed/errored")
+        elif c.acc == 0.0 and c.answered > 3:
+            print(f"SANITY: {c.label} scored 0.00 on {c.answered} answered questions "
+                      f"(provider failure or judge break?)")
+    errs = [r for r in runs if r.get("error")]
+    if errs:
+        print(f"SANITY: {len(errs)}/{len(runs)} runs errored; first: {errs[0]['error'][:120]}")
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
     report = render_markdown(cells, curves)
     args.out.write_text(report)
