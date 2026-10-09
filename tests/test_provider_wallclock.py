@@ -38,11 +38,13 @@ def test_comments_only_stream_times_out_and_exhausts_retries(monkeypatch):
         return httpx.Response(200, content=iter([b": OPENROUTER PROCESSING\n\n"] * 3))
 
     client = _client(handler)
-    with pytest.raises(ProviderError):
+    with pytest.raises(ProviderError) as exc:
         client.complete([{"role": "user", "content": "q"}])
 
-    # every attempt hit the wall-clock guard (not a silent hang)
-    assert calls["posts"] == 7
+    # every attempt hit a wall-clock guard (not a silent hang), and the
+    # 900s ladder budget aborts before all 7 attempts on a fast clock
+    assert 1 <= calls["posts"] < 7
+    assert "900s wall budget" in str(exc.value) or "exhausted" in str(exc.value)
 
 
 def test_hard_deadline_fires_even_after_data_flows(monkeypatch):
@@ -64,6 +66,9 @@ def test_hard_deadline_fires_even_after_data_flows(monkeypatch):
         return httpx.Response(200, content=iter(chunks))
 
     client = _client(handler)
-    with pytest.raises(ProviderError):
+    with pytest.raises(ProviderError) as exc:
         client.complete([{"role": "user", "content": "q"}])
-    assert calls["posts"] == 7
+    # fast fake clock: the ladder budget aborts after the first wedged
+    # attempt instead of burning all 7 (new contract, see provider.py)
+    assert 1 <= calls["posts"] < 7
+    assert "900s wall budget" in str(exc.value) or "exhausted" in str(exc.value)

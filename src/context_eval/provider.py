@@ -193,6 +193,7 @@ class OpenRouterClient:
 
         last_error: Exception | None = None
         attempts = 7  # shared-pool rate limits can persist a while
+        ladder_start = time.monotonic()
         for attempt in range(attempts):
             try:
                 if self._stream:
@@ -200,6 +201,13 @@ class OpenRouterClient:
                 return self._post(body)
             except _TransientProviderError as exc:
                 last_error = exc
+                # Total ladder budget: 7 x (600s stream deadline + backoff)
+                # can reach ~78 min on a wedged upstream -- a stuck run that
+                # looks hung (measured: 22 min at 3s CPU, mid-ladder).
+                if time.monotonic() - ladder_start > 900:
+                    raise ProviderError(
+                        f"transient ladder exceeded 900s wall budget: {last_error}"
+                    ) from exc
                 if attempt < attempts - 1:
                     # Exponential with jitter, capped: 1s..~45s
                     time.sleep(min(2.0**attempt, 45.0) * (0.5 + random.random()))
