@@ -27,7 +27,41 @@ from context_eval.types import ToolCall, Usage
 BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash"
 # Pin serving for reproducibility (cheap, fast FP8 path); override per client.
-DEFAULT_PROVIDER_ONLY: tuple[str, ...] = ("baidu/fp8",)
+# Routing: pin to every provider serving the model at fp8 quantization
+# (resolved from OpenRouter's endpoints API). Falls back to the original
+# single-provider pin when resolution is unavailable.
+DEFAULT_PROVIDER_QUANT = "fp8"
+_FALLBACK_PROVIDER_ONLY: tuple[str, ...] = ("baidu/fp8",)
+
+
+def resolve_provider_tags(
+    model: str = DEFAULT_MODEL,
+    quant: str = DEFAULT_PROVIDER_QUANT,
+    http_client: httpx.Client | None = None,
+) -> tuple[str, ...]:
+    """Routing tags (e.g. "baidu/fp8") for endpoints serving ``model`` at
+    ``quant``. OpenRouter load-balances across the ``only`` list, so more
+    providers means more shared-pool rate-limit headroom. Unresolvable
+    (offline, API change) degrades to the single-provider pin."""
+    url = f"{BASE_URL}/models/{model}/endpoints"
+    own = http_client is None
+    client = http_client or httpx.Client(timeout=30.0)
+    try:
+        payload = client.get(url).json()
+        endpoints = payload.get("data", {}).get("endpoints", [])
+        tags = sorted(
+            {
+                e["tag"]
+                for e in endpoints
+                if e.get("quantization") == quant and e.get("tag")
+            }
+        )
+        return tuple(tags) or _FALLBACK_PROVIDER_ONLY
+    except Exception:
+        return _FALLBACK_PROVIDER_ONLY
+    finally:
+        if own:
+            client.close()
 DEFAULT_ALLOW_FALLBACKS = False
 
 # OpenAI wire-format message dicts. Kept as plain dicts: the provider stays a
@@ -119,7 +153,7 @@ class OpenRouterClient:
         http_client: httpx.Client | None = None,
         *,
         stream: bool = True,
-        provider_only: tuple[str, ...] = DEFAULT_PROVIDER_ONLY,
+        provider_only: tuple[str, ...] | None = None,
         allow_fallbacks: bool = DEFAULT_ALLOW_FALLBACKS,
     ) -> None:
         self.model = model
@@ -128,6 +162,9 @@ class OpenRouterClient:
         self._timeout = timeout
         self._client = http_client
         self._stream = stream
+        # None = auto: every fp8 endpoint, resolved once at construction.
+        if provider_only is None:
+            provider_only = resolve_provider_tags(model, http_client=http_client)
         self._provider_only = tuple(provider_only) if provider_only else None
         self._allow_fallbacks = allow_fallbacks
 

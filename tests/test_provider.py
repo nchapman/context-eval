@@ -174,7 +174,10 @@ class TestOpenRouterClient:
             return httpx.Response(401, text="bad key")
 
         client = OpenRouterClient(
-            api_key="sk-bad", stream=False, http_client=_client(handler)
+            api_key="sk-bad",
+            stream=False,
+            provider_only=("baidu/fp8",),
+            http_client=_client(handler),
         )
         with pytest.raises(ProviderError, match="401"):
             client.complete([{"role": "user", "content": "q"}])
@@ -408,7 +411,11 @@ class TestStreaming:
             attempts.append(1)
             return httpx.Response(401, text="bad key")
 
-        client = OpenRouterClient(api_key="sk-bad", http_client=_client(handler))
+        client = OpenRouterClient(
+            api_key="sk-bad",
+            provider_only=("baidu/fp8",),
+            http_client=_client(handler),
+        )
         with pytest.raises(ProviderError, match="401"):
             client.complete([{"role": "user", "content": "q"}])
         assert len(attempts) == 1
@@ -442,3 +449,44 @@ class TestStreaming:
         assert result.text == "x"
         assert result.usage.llm_calls == 1
         assert result.usage.prompt_tokens == 0
+
+
+class TestProviderResolution:
+    def _endpoints_client(self, tags_response):
+        def handler(request):
+            if request.url.path.endswith("/endpoints"):
+                return httpx.Response(200, json=tags_response)
+            return httpx.Response(200, json=ok_response())
+
+        return OpenRouterClient(
+            api_key="k", stream=False, http_client=_client(handler)
+        )
+
+    def test_resolves_all_fp8_tags(self):
+        client = self._endpoints_client(
+            {
+                "data": {
+                    "endpoints": [
+                        {"tag": "baidu/fp8", "quantization": "fp8"},
+                        {"tag": "morph/fp8", "quantization": "fp8"},
+                        {"tag": "fireworks/fp4", "quantization": "fp4"},
+                        {"tag": "deepinfra/fp8", "quantization": "fp8"},
+                        {"quantization": "fp8"},  # tagless: ignored
+                    ]
+                }
+            }
+        )
+        assert client._provider_only == ("baidu/fp8", "deepinfra/fp8", "morph/fp8")
+
+    def test_unresolvable_falls_back_to_single_pin(self):
+        client = self._endpoints_client({"data": {"endpoints": []}})
+        assert client._provider_only == ("baidu/fp8",)
+
+    def test_explicit_pin_skips_resolution(self):
+        client = OpenRouterClient(
+            api_key="k",
+            stream=False,
+            provider_only=("baidu/fp8",),
+            http_client=_client(lambda r: httpx.Response(200, json=ok_response())),
+        )
+        assert client._provider_only == ("baidu/fp8",)

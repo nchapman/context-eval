@@ -18,6 +18,7 @@ def _client(handler) -> OpenRouterClient:
     return OpenRouterClient(
         api_key="k",
         stream=True,
+        provider_only=("baidu/fp8",),
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
