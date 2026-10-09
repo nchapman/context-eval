@@ -131,7 +131,9 @@ def recap(path: Path, span_tokens: int, batch: int) -> None:
             "dead-ends. Reply with the same numbered list, one recap per item.\n\n"
             + numbered
         )
-        result = llm.complete([{"role": "user", "content": prompt}])
+        result = llm.complete(
+            [{"role": "user", "content": prompt}], max_tokens=4096
+        )
         lines = [ln.strip() for ln in result.text.splitlines() if ln.strip()]
         recaps: dict[int, str] = {}
         for line in lines:

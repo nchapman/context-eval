@@ -186,7 +186,11 @@ def run_sample(
     counter: TokenCounter,
     budget_tokens: int,
     system_prompt: str = SYSTEM_PROMPT,
-    max_answer_tokens: int = 512,
+    # Generous on purpose: reasoning draws from the same budget (observed
+    # p99 ~256, max ~395 tokens per call before any content). We pay for
+    # usage, not the cap, so headroom is nearly free while truncation
+    # quietly destroys answers.
+    max_answer_tokens: int = 2048,
     temperature: float = 0.0,
 ) -> RunResult:
     result = RunResult(

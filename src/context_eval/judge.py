@@ -129,7 +129,9 @@ class LLMJudge:
 
     def score(self, question: Question, prediction: str) -> Score:
         prompt = _JUDGE_PROMPT.format(reference=question.answer, prediction=prediction)
-        completion = self._llm.complete([{"role": "user", "content": prompt}], max_tokens=512)
+        completion = self._llm.complete(
+            [{"role": "user", "content": prompt}], max_tokens=1024
+        )
         verdict = " ".join(completion.text.strip().upper().split())
         if verdict == "YES" or verdict.startswith("YES "):
             return Score(1.0, "llm_judge")

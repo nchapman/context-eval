@@ -37,7 +37,11 @@ TAU_SOFT = 0.70  # fraction of budget: begin compacting between turns
 TAU_HARD = 0.90  # fraction of budget: compact before continuing
 CHUNK_FRAC = 0.25  # target chunk size as a fraction of budget
 SIBLINGS_TO_MERGE = 4
-SUMMARY_MAX_TOKENS = 700
+# Cap on summary generation: reasoning tokens draw from the same budget,
+# and observed per-call reasoning runs p99~256 / max~395 tokens on this
+# model -- a tight cap truncates summaries mid-sentence, silently
+# degrading the DAG. View size is enforced at assembly, not here.
+SUMMARY_MAX_TOKENS = 2048
 
 _D1_PROMPT = """Summarize this segment of an agent's coding session for future reference.
 Preserve exactly: the task/goal, key decisions and why, file paths touched,
