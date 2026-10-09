@@ -83,5 +83,10 @@ cat "$OUT"/locomo/*.jsonl > "$OUT/locomo.jsonl" 2>/dev/null || true
 cat "$OUT"/pi/*.jsonl > "$OUT/pi.jsonl" 2>/dev/null || true
 cat "$OUT"/thinking/*/*.jsonl > "$OUT/thinking.jsonl" 2>/dev/null || true
 uv run python -m context_eval.report "$OUT"/swe.jsonl "$OUT"/locomo.jsonl \
-  "$OUT"/pi.jsonl "$OUT"/thinking.jsonl --out "$OUT/report.md"
+  "$OUT"/pi.jsonl --out "$OUT/report.md"
+# Thinking ablation is its own comparison (same span, three representations)
+# -- never merged into budget cells shared with other corpora.
+if [ -s "$OUT/thinking.jsonl" ]; then
+  uv run python -m context_eval.report "$OUT/thinking.jsonl" --out "$OUT/thinking-report.md"
+fi
 echo "=== SUITE DONE ==="

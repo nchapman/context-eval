@@ -49,7 +49,11 @@ def _span_index(persist: ReplaySample, span_tokens: int, counter) -> int:
 def _slice(sample: ReplaySample, n: int, dataset: str) -> ReplaySample:
     return ReplaySample(
         dataset=dataset,
-        sample_id=sample.sample_id,
+        # Distinct sample_id per arm: the raw session stem is shared with
+        # the pi-session corpus, and report.load_runs dedupes on
+        # (strategy, sample_id, budget) -- identical stems silently
+        # replaced pi-session runs with thinking-arm runs in shared cells.
+        sample_id=f"{sample.sample_id}::{dataset}",
         messages=sample.messages[:n],
         meta=dict(sample.meta),
     )
