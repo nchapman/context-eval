@@ -65,6 +65,10 @@ class Completion:
     model: str
     # The serving provider that actually handled the call (e.g. "baidu/fp8").
     provider: str = ""
+    # Reasoning-channel text; non-empty when the model answered entirely in
+    # reasoning and left the content channel empty (observed on ~30% of
+    # short factual answers with deepseek-v4.1-flash).
+    reasoning: str = ""
 
 
 class ProviderError(RuntimeError):
@@ -211,6 +215,7 @@ class OpenRouterClient:
             tool_calls=tool_calls,
             usage=_parse_usage(data.get("usage")),
             finish_reason=choice.get("finish_reason", "unknown"),
+            reasoning=message.get("reasoning_content") or "",
             model=data.get("model", self.model),
             provider=data.get("provider") or data.get("provider_name") or "",
         )
@@ -245,6 +250,7 @@ class OpenRouterClient:
 
     def _consume_sse(self, response: httpx.Response) -> Completion:
         content_parts: list[str] = []
+        reasoning_parts: list[str] = []
         tool_calls: dict[int, dict[str, str]] = {}
         finish_reason = "unknown"
         model = self.model
@@ -296,6 +302,11 @@ class OpenRouterClient:
             delta = choice.get("delta") or {}
             if delta.get("content"):
                 content_parts.append(delta["content"])
+            # DeepSeek-style reasoning: some responses carry the whole
+            # answer here with an empty content channel (observed on ~30%
+            # of short factual answers with v4.1-flash).
+            if delta.get("reasoning_content"):
+                reasoning_parts.append(delta["reasoning_content"])
             for tc in delta.get("tool_calls") or ():
                 slot = tool_calls.setdefault(
                     tc.get("index", 0), {"id": "", "name": "", "arguments": ""}
@@ -320,6 +331,7 @@ class OpenRouterClient:
             ),
             usage=usage or Usage(llm_calls=1),
             finish_reason=finish_reason,
+            reasoning="".join(reasoning_parts),
             model=model,
             provider=provider,
         )

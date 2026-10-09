@@ -316,7 +316,15 @@ def _ask(
                 wire.append(tool_result_message(tc.id, str(output)))
             continue
 
-        prediction = completion.text.strip()
+        # Reasoning-only responses: the model put the whole answer in the
+        # reasoning channel and left content empty. Fall back to the last
+        # non-empty reasoning line, where the concluding answer typically
+        # lives; without this ~30% of short answers scored as blank.
+        text = completion.text.strip()
+        if not text and completion.reasoning.strip():
+            lines = [ln.strip() for ln in completion.reasoning.splitlines() if ln.strip()]
+            text = lines[-1] if lines else ""
+        prediction = text
         break
 
     score: Score = score_question(question, prediction)

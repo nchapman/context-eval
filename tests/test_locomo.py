@@ -53,11 +53,21 @@ class TestNormalize:
         sample = normalize_conversation(fake_item())
         sessions = [m.meta["session"] for m in sample.messages]
 
-        assert sessions == ["session_1", "session_2", "session_2", "session_10"]
+        assert sessions == [
+            "session_1",
+            "session_1",
+            "session_2",
+            "session_2",
+            "session_2",
+            "session_10",
+            "session_10",
+        ]
 
     def test_turns_are_speaker_prefixed_user_messages(self):
         sample = normalize_conversation(fake_item())
-        first = sample.messages[0]
+        # Session-date markers precede each session's turns.
+        assert sample.messages[0].content == "[Session on 9 am on 1 May, 2023]"
+        first = sample.messages[1]
 
         assert first.role is Role.USER
         assert first.content == "Alice: First!"

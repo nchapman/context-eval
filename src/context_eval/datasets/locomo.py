@@ -60,6 +60,18 @@ def normalize_conversation(item: Mapping[str, Any]) -> ReplaySample:
     messages: list[ReplayMessage] = []
     for session in _session_keys(conv):
         ts = conv.get(f"{session}_date_time", "")
+        # Session dates are load-bearing: LoCoMo gold answers are
+        # calendar-anchored ("the week before 9 June 2023") while the chat
+        # text says "this week". Without a rendered date anchor the
+        # temporal and single-hop categories are unanswerable in principle.
+        if ts:
+            messages.append(
+                ReplayMessage(
+                    role=Role.USER,
+                    content=f"[Session on {ts}]",
+                    meta={"speaker": "system", "session": session, "session_ts": ts},
+                )
+            )
         for turn in conv[session]:
             messages.append(
                 ReplayMessage(
