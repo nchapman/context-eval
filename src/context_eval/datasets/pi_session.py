@@ -8,11 +8,18 @@ user/assistant/tool-result messages at 0.3M-1.5M content tokens.
 
 CLI:
     uv run python -m context_eval.datasets.pi_session <file.jsonl...> \
-        --out data/pi_sessions.jsonl --max-tokens 1000000
+        --out data/pi_sessions.jsonl --max-tokens 1000000 \
+        [--thinking drop|persist]
 
 Role mapping: user -> user, assistant -> assistant, toolResult -> tool.
 System messages (the harness's own prompts) and non-message records are
 skipped; their counts are kept in sample meta.
+
+Thinking policy (assistant "thinking" content parts):
+- drop (default): excluded, matching what most deployed harnesses do at
+  turn end; counts land in meta["thinking_parts"]
+- persist: rendered inline before the assistant prose, matching what a
+  keep-all history (Anthropic Opus 4.5+/Sonnet 4.6+ default) would show
 """
 
 from __future__ import annotations
@@ -21,7 +28,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 from context_eval.datasets.base import ReplayMessage, ReplaySample
 from context_eval.tokens import default_counter
@@ -34,28 +40,21 @@ _ROLE_MAP: dict[str, Role] = {
 }
 
 
-def _message_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "\n".join(
-            part.get("text", "") for part in content if isinstance(part, dict)
-        )
-    return ""
-
-
 def convert(
     path: str | Path,
     max_tokens: int | None = None,
+    thinking: str = "drop",
 ) -> ReplaySample:
     """Parse one pi session transcript into a ReplaySample.
 
     ``max_tokens`` keeps the longest message-prefix whose cumulative exact
     token count stays within the cap (None keeps the whole session).
+    ``thinking`` selects the reasoning-persistence policy (see module doc).
     """
     counter = default_counter()
     messages: list[ReplayMessage] = []
     skipped: dict[str, int] = {}
+    thinking_parts = 0
     compactions = 0
     first_ts = last_ts = ""
 
@@ -81,7 +80,25 @@ def convert(
             if role is None:  # system prompts and anything exotic
                 skipped[msg.get("role", "?")] = skipped.get(msg.get("role", "?"), 0) + 1
                 continue
-            messages.append(ReplayMessage(role=role, content=_message_text(msg.get("content"))))
+            content = msg.get("content")
+            thinking_texts: list[str] = []
+            prose_texts: list[str] = []
+            if isinstance(content, list):
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    if part.get("type") == "thinking":
+                        thinking_texts.append(part.get("thinking", ""))
+                    else:
+                        prose_texts.append(part.get("text", ""))
+            elif isinstance(content, str):
+                prose_texts.append(content)
+            thinking_parts += len(thinking_texts)
+            if thinking == "persist" and thinking_texts:
+                body = "\n".join(thinking_texts + prose_texts)
+            else:
+                body = "\n".join(prose_texts)
+            messages.append(ReplayMessage(role=role, content=body))
 
     if max_tokens is not None:
         total = 0
@@ -105,6 +122,8 @@ def convert(
             "first_timestamp": first_ts,
             "last_timestamp": last_ts,
             "prefix_capped": max_tokens is not None,
+            "thinking": thinking,
+            "thinking_parts": thinking_parts,
         },
     )
 
@@ -114,17 +133,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("files", nargs="+", type=Path)
     parser.add_argument("--out", type=Path, default=Path("data/pi_sessions.jsonl"))
     parser.add_argument("--max-tokens", type=int, default=None)
+    parser.add_argument("--thinking", choices=["drop", "persist"], default="drop")
     args = parser.parse_args(argv)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     counter = default_counter()
     with args.out.open("w") as out:
         for path in args.files:
-            sample = convert(path, args.max_tokens)
+            sample = convert(path, args.max_tokens, thinking=args.thinking)
             total = counter.count_messages(sample.messages)
             print(
                 f"{sample.sample_id}: {len(sample.messages)} messages, "
-                f"{total:,} tokens, {sample.meta['compaction_events']} compactions "
+                f"{total:,} tokens, {sample.meta['compaction_events']} compactions, "
+                f"{sample.meta['thinking_parts']} thinking parts "
                 f"(skipped: {sample.meta['skipped_roles']})",
                 file=sys.stderr,
             )

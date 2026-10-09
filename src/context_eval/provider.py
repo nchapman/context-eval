@@ -251,8 +251,21 @@ class OpenRouterClient:
         provider = ""
         usage: Usage | None = None
         saw_data = False
+        started = time.monotonic()
 
         for raw_line in response.iter_lines():
+            # Wall-clock guards: keepalive comments reset httpx read
+            # timeouts forever, so a stalled stream would otherwise hang a
+            # run indefinitely. Retryable -- the retry ladder takes over.
+            elapsed = time.monotonic() - started
+            if elapsed > 600:
+                raise _TransientProviderError(
+                    f"stream wall-clock deadline exceeded ({elapsed:.0f}s)"
+                )
+            if not saw_data and elapsed > 240:
+                raise _TransientProviderError(
+                    f"no stream data within {elapsed:.0f}s"
+                )
             if not raw_line.startswith("data:"):
                 continue  # SSE comments (": OPENROUTER PROCESSING") etc.
             payload = raw_line[len("data:") :].strip()
