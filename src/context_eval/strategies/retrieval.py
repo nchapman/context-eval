@@ -169,11 +169,11 @@ class RetrievalOnly(SlidingWindow):
 
     def tools(self, engine: Engine) -> list[EngineTool]:
         search = ToolSchema(
-            name="search_history",
+            name="history_search",
             description=(
                 "Search the verbatim full history of this session (including "
                 "everything outside the visible recent window). Returns "
-                "matching message ids with snippets; use recall_history to "
+                "matching message ids with snippets; use history_recall to "
                 "fetch full content by id."
             ),
             parameters={
@@ -185,7 +185,7 @@ class RetrievalOnly(SlidingWindow):
             },
         )
         recall = ToolSchema(
-            name="recall_history",
+            name="history_recall",
             description="Return the full original content of a message by id.",
             parameters={
                 "type": "object",

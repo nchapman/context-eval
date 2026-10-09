@@ -10,8 +10,8 @@ Comparisons this arm anchors:
 
 - editing vs sliding-window: value of keeping the cleared skeleton
   (structure, pairing integrity, head of each result) over dropping turns
-- editing vs arc: value of LLM-generated previews + citations over plain
-  head-stubs
+- editing vs arc: value of arc-style previews + addressable citations over
+  plain deterministic head-stub clearing (both zero-LLM).
 """
 
 from __future__ import annotations
@@ -31,12 +31,12 @@ class ContextEditing(Strategy):
         budget = engine.budget.max_context_tokens
         messages = engine.store.messages()
 
-        # Verbatim cost of everything; if under budget, nothing to edit.
+        # Verbatim cost of everything; under the trigger, nothing to edit.
         total = sum(
             engine.counter.count_text(m.content) + MESSAGE_OVERHEAD_TOKENS
             for m in messages
         )
-        if total <= budget:
+        if total <= EDIT_TAU * budget:
             return [m.to_prompt() for m in messages]
 
         # Over budget: clear tool-result payloads oldest-first, keeping a
@@ -44,7 +44,7 @@ class ContextEditing(Strategy):
         cleared: dict[str, str] = {}
         edited_total = total
         for msg in messages:
-            if edited_total <= budget:
+            if edited_total <= EDIT_TAU * budget:
                 break
             if msg.role is not Role.TOOL:
                 continue

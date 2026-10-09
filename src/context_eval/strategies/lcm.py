@@ -155,9 +155,10 @@ class LCMDagger(Strategy):
     def _summarize_chunk(self, engine: Engine, chunk) -> str | None:
         if engine.llm is None:
             return None
-        segment = "\n".join(
-            f"[§{m.id} {m.role.value}] {m.content[:2_000]}" for m in chunk
-        )
+        # Full content: the chunk is already bounded by chunk_target, and
+        # truncating here would hide deep content (and injected needles)
+        # from the summary while flat-compact's summarizer sees everything.
+        segment = "\n".join(f"[§{m.id} {m.role.value}] {m.content}" for m in chunk)
         try:
             completion = engine.llm.complete(
                 [{"role": "user", "content": _D1_PROMPT.format(segment=segment)}],

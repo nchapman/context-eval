@@ -63,6 +63,24 @@ class TestFlatCompact:
         view = s.assemble(eng)
         assert len(view) == 1 + len(corpus())  # tail marker + all msgs verbatim
 
+    def test_pre_trigger_view_is_full_verbatim_history(self):
+        """The regime that matters: view between keep-tail and trigger.
+
+        Deployed /compact shows the full verbatim history until the trigger
+        fires; the 25% tail cap must NOT silently evict 60% of the session
+        pre-compaction (this exact bug shipped once -- keep it pinned)."""
+        llm = StubLLM()
+        msgs = [("tool", f"block {i} " + "z" * 200) for i in range(30)]
+        eng = make_engine(msgs, budget_tokens=6_000, llm=llm)  # ~1.7K raw < 0.9*6K
+        s = FlatCompact()
+        for _ in range(len(eng.store.messages())):
+            s.on_turn(eng)
+        assert s.stats().compactions == 0
+        view = s.assemble(eng)
+        assert len(view) == 1 + 30  # every message, not a 25% tail
+        blocks = sorted(int(m.content.split()[1]) for m in view if m.content.startswith("block"))
+        assert blocks == list(range(30))  # all thirty survived verbatim
+
     def test_compacts_once_over_threshold_and_keeps_tail(self):
         llm = StubLLM()
         eng = make_engine(corpus(), budget_tokens=200, llm=llm)
@@ -103,8 +121,8 @@ class TestFlatCompact:
         for _ in range(len(eng.store.messages())):
             s.on_turn(eng)
         tools = {t.schema.name: t for t in s.tools(eng)}
-        assert "search_history" in tools and "recall_history" in tools
-        hits = tools["search_history"].execute({"query": "pytest pinned"})
+        assert "history_search" in tools and "history_recall" in tools
+        hits = tools["history_search"].execute({"query": "pytest pinned"})
         assert "8.2.1" in hits or hits != "no matches"
 
 
@@ -115,7 +133,9 @@ class TestContextEditing:
         assert [m.content for m in view] == [c for _, c in corpus()]
 
     def test_clears_oldest_tool_payloads_first(self):
-        eng = make_engine(corpus(), budget_tokens=200)
+        # trigger at EDIT_TAU=0.90: 255-token corpus vs 216 → clears only
+        # enough to get back under
+        eng = make_engine(corpus(), budget_tokens=240)
         view = ContextEditing().assemble(eng)
         contents = [m.content for m in view]
         # oldest tool result cleared to a stub, newest stays verbatim
@@ -129,6 +149,36 @@ class TestContextEditing:
         eng = make_engine(corpus(), budget_tokens=200, llm=llm)
         ContextEditing().assemble(eng)
         assert llm.calls == 0
+
+    def test_assistant_heavy_transcript_stays_over_budget(self):
+        """Documented regime boundary (same class as ARC): editing only
+        clears TOOL payloads, so assistant-heavy transcripts cannot fit.
+        The driver records overflow -- that is data, not a bug."""
+        msgs = [("assistant", "thinking " + "a" * 300)] * 30
+        eng = make_engine(msgs, budget_tokens=400)
+        view = ContextEditing().assemble(eng)
+        assert all(m.content.startswith("thinking") for m in view)  # untouched
+
+
+def test_count_messages_includes_tool_call_arguments():
+    """Wire-format fairness: tool-call args ride the wire but live in meta.
+    Without counting them, views on SWE traces undercount ~10-16% (measured
+    on data/swe_smoke.jsonl) in a strategy-dependent direction."""
+    from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS, CharEstimator
+    from context_eval.types import Message, Role
+
+    counter = CharEstimator()
+    bare = Message(id="m1", role=Role.ASSISTANT, content="run the tests", meta={})
+    calls = Message(
+        id="m2",
+        role=Role.ASSISTANT,
+        content="run the tests",
+        meta={"tool_calls": [{"name": "bash", "arguments": {"cmd": "uv run pytest" * 20}}]},
+    )
+    bare_cost = counter.count_messages([bare])
+    calls_cost = counter.count_messages([calls])
+    assert bare_cost == (len("run the tests") + 3) // 4 + MESSAGE_OVERHEAD_TOKENS
+    assert calls_cost > bare_cost * 2  # argument tokens materially counted
 
 
 def test_registry_entries():

@@ -57,6 +57,7 @@ The "lossless" family proper. Originals are always retained verbatim in a store;
 - Append-only, **ID-addressable store** of every tool observation; bounded active view replaces older/longer observations with compact `§id` citations (head/tail preview + metadata). Observations below a length threshold ρ stay verbatim.
 - `_recall §id` tool, intercepted by the engine, restores full content on demand. Citation handles persist across later compactions.
 - **No LLM is involved in compaction itself** — deterministic. Only recall costs extra tokens.
+- **Regime boundary (applies to our clean-room and to context-editing alike):** both approaches only shrink TOOL payloads; on assistant-heavy transcripts (our pi corpora ≈ 54% untouchable assistant content) the view cannot fit and the driver records overflow — a property of the designs, not the harness. Reproduced on-synththetic: 23–24K edited view against a 16K budget with every tool observation cleared/cited.
 - Results: Needle-in-a-Haystack 99.40% vs 88.12% best baseline (Qwen3-8B @16K, Qwen3-32B @32K); LongBench-v2 Hard 29.97% vs 28.25%; reduced serving time and HBM traffic.
 - Note: name collision with a different "ARC" (Active and Reflection-driven Context management, arXiv:2601.12030, ACL 2026 Findings — reflection-driven context reorganization for info-seeking agents).
 

@@ -34,16 +34,32 @@ def locomo_sample(n_turns=8):
 
 
 class TestSweInjection:
-    def test_appends_audit_lines_to_tool_observations(self):
+    def test_injects_audit_lines_into_tool_observations(self):
         sample, questions = inject_needles(swe_sample(), n=3, seed=42)
 
         assert len(questions) == 3
         tool_msgs = [m for m in sample.messages if m.role is Role.TOOL]
         injected = [m for m in tool_msgs if m.meta.get("needle")]
         assert len(injected) == 3
-        # Original content preserved before the appended line
+        # Original content survives (needle inserted, not replacing)
         for m in injected:
-            assert m.content.startswith("output ")
+            assert "output " in m.content
+
+    def test_needle_position_varies_and_is_deterministic(self):
+        # Not always at the end: position is drawn per seed so no strategy's
+        # preview window (e.g. ARC head+tail citations) sees every needle.
+        at_end = []
+        for seed in range(8):
+            sample, _ = inject_needles(swe_sample(), n=3, seed=seed)
+            for m in sample.messages:
+                if m.meta.get("needle") and m.role is Role.TOOL:
+                    line = m.content.split("\n")[-1]
+                    at_end.append(line.startswith("NOTE") or line.startswith("INFO"))
+        assert not all(at_end), "needles must not always land at observation end"
+        # Deterministic: same seed -> same sample
+        a, _ = inject_needles(swe_sample(), n=3, seed=11)
+        b, _ = inject_needles(swe_sample(), n=3, seed=11)
+        assert [m.content for m in a.messages] == [m.content for m in b.messages]
 
     def test_questions_carry_exact_answers_present_in_content(self):
         sample, questions = inject_needles(swe_sample(), n=4, seed=7)

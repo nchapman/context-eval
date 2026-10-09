@@ -112,6 +112,10 @@ class FlatCompact(Strategy):
         self._compactions += 1
 
     def assemble(self, engine: Engine) -> list[PromptMessage]:
+        # Deployed semantics: verbatim everything since the last compaction
+        # (plus the running summary). The keep-tail cap decides only what
+        # gets FOLDED at compaction time -- between compactions the view
+        # grows freely until the next trigger, exactly like /compact.
         view: list[PromptMessage] = []
         if self._summary:
             view.append(
@@ -121,18 +125,20 @@ class FlatCompact(Strategy):
                 )
             )
         view.append(PromptMessage(role=Role.USER, content="[Recent context — verbatim]"))
-        view.extend(m.to_prompt() for m in self._tail(engine)[0])
+        view.extend(
+            m.to_prompt() for m in engine.store.messages()[self._summarized_upto :]
+        )
         return view
 
     # -- recall tools (parity with lcm/retrieval) ----------------------------
 
     def tools(self, engine: Engine) -> list[EngineTool]:
         search = ToolSchema(
-            name="search_history",
+            name="history_search",
             description=(
                 "Search the verbatim archive of this session (including "
                 "compacted segments). Returns matching message ids with "
-                "snippets; recall_history fetches full content by id."
+                "snippets; history_recall fetches full content by id."
             ),
             parameters={
                 "type": "object",
@@ -141,7 +147,7 @@ class FlatCompact(Strategy):
             },
         )
         recall = ToolSchema(
-            name="recall_history",
+            name="history_recall",
             description="Return the full original content of a message by id.",
             parameters={
                 "type": "object",

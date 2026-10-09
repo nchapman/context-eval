@@ -88,8 +88,11 @@ class ARCCitations(Strategy):
             i = -neg_idx
             obs_tokens = counter.count_text(m.content)
             citation = make_citation(m.id, m.content, obs_tokens)
+            cite_tokens = counter.count_text(citation) + MESSAGE_OVERHEAD_TOKENS
+            if cite_tokens >= cost:
+                continue  # citing would grow the view; leave verbatim
             cited[i] = citation
-            total -= cost - (counter.count_text(citation) + MESSAGE_OVERHEAD_TOKENS)
+            total -= cost - cite_tokens
 
         self._cited_now = {messages[i].id for i in cited}
         view: list[PromptMessage] = []

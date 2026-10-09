@@ -61,28 +61,28 @@ class TestRetrievalOnly:
     def test_search_finds_old_content_with_snippets(self, engine):
         strategy, eng = engine
         tools = {t.schema.name: t for t in strategy.tools(eng)}
-        result = tools["search_history"].execute({"query": "flaky pytest"})
+        result = tools["history_search"].execute({"query": "flaky pytest"})
         assert "parser/test_hex.py" in result
         assert result.splitlines()[0].startswith("m")
 
     def test_recall_returns_full_verbatim_message(self, engine):
         strategy, eng = engine
         tools = {t.schema.name: t for t in strategy.tools(eng)}
-        hit = tools["search_history"].execute({"query": "CI config pinned"})
+        hit = tools["history_search"].execute({"query": "CI config pinned"})
         mid = hit.splitlines()[0].split(":")[0]
-        full = tools["recall_history"].execute({"id": mid})
+        full = tools["history_recall"].execute({"id": mid})
         assert "pytest to 8.2.1" in full
 
     def test_recall_unknown_id_is_not_an_error(self, engine):
         strategy, eng = engine
         tools = {t.schema.name: t for t in strategy.tools(eng)}
-        assert tools["recall_history"].execute({"id": "m999999"}) == "no such message id"
+        assert tools["history_recall"].execute({"id": "m999999"}) == "no such message id"
 
     def test_stats_count_tool_calls(self, engine):
         strategy, eng = engine
         tools = {t.schema.name: t for t in strategy.tools(eng)}
-        tools["search_history"].execute({"query": "pytest"})
-        tools["recall_history"].execute({"id": "m000000"})
+        tools["history_search"].execute({"query": "pytest"})
+        tools["history_recall"].execute({"id": "m000000"})
         stats = strategy.stats()
         assert stats.recall_tool_calls == 2
 

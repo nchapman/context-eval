@@ -153,6 +153,21 @@ class TestHierarchy:
 
 
 class TestEscalation:
+    def test_summarizer_sees_full_content_beyond_2k_chars(self):
+        """D1 prompts must not truncate long observations: deep content
+        (and injected needles anywhere in the observation) has to reach the
+        summarizer, or LCM is handicapped vs flat-compact."""
+        deep = "needle habitat: the answer value ZQX-99 lives here " + "f" * 4000
+        store = TranscriptStore()
+        store.append(Role.TOOL, deep)
+        llm = ScriptedLLM(texts=["summary of deep"])
+        eng = make_engine(store, budget_tokens=400, llm=llm)
+        s = LCMDagger()
+        store.append(Role.USER, "next turn")
+        s.on_turn(eng)  # force a compaction
+        assert llm.calls, "expected a summarizer call"
+        assert "ZQX-99" in llm.calls[0]  # deep content reached the prompt
+
     def test_summarizer_failure_degrades_to_pointer_nodes(self):
         store = TranscriptStore()
         fill_turns(store, 60)

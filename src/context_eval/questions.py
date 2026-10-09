@@ -153,7 +153,14 @@ def inject_needles(
         target = messages[pos]
 
         if target.role is Role.TOOL:
-            content = target.content + "\n" + fact.container.format(v=value)
+            # Insert at a seeded random line boundary, not always the end:
+            # deterministic per seed, but the needle's position inside the
+            # observation must not systematically land in any strategy's
+            # preview window (e.g. ARC keeps head+tail of cited messages).
+            line = fact.container.format(v=value)
+            lines = target.content.split("\n")
+            at = rng.randrange(len(lines) + 1)
+            content = "\n".join([*lines[:at], line, *lines[at:]])
             new_meta = dict(target.meta)
             new_meta["needle"] = True
             messages[pos] = ReplayMessage(role=target.role, content=content, meta=new_meta)

@@ -9,6 +9,7 @@ counter on live runs.
 
 from __future__ import annotations
 
+import json
 import os
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -32,7 +33,16 @@ class TokenCounter(ABC):
     def count_text(self, text: str) -> int: ...
 
     def count_messages(self, messages: Sequence[PromptMessage | Message]) -> int:
-        return sum(self.count_text(m.content) + MESSAGE_OVERHEAD_TOKENS for m in messages)
+        total = 0
+        for m in messages:
+            total += self.count_text(m.content) + MESSAGE_OVERHEAD_TOKENS
+            # Tool-call arguments ride the wire (view_to_wire) but live in
+            # meta, not content -- count them or views undercount ~10-16%
+            # on tool-heavy traces (measured on data/swe_smoke.jsonl).
+            calls = getattr(m, "meta", {}).get("tool_calls")
+            if calls:
+                total += self.count_text(json.dumps(calls, separators=(",", ":")))
+        return total
 
 
 class CharEstimator(TokenCounter):
