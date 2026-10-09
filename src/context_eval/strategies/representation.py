@@ -80,8 +80,6 @@ class RepresentationMemory(Strategy):
         self._keep_tail_frac = keep_tail_frac
         self._memory: str = ""
         self._folded_upto = 0  # store messages merged into the memory
-        self._seen_upto = 0  # store messages already counted toward _delta_tokens
-        self._delta_tokens = 0  # un-folded tokens accumulated since the last fold
         self._updates = 0
         self._empty = 0
         self._overhead = Usage()
@@ -120,14 +118,16 @@ class RepresentationMemory(Strategy):
         messages = engine.store.messages()
         if len(messages) > self._index.indexed_upto:
             self._index.index(messages[self._index.indexed_upto :])
-        if len(messages) > self._seen_upto:
-            self._delta_tokens += sum(
-                engine.counter.count_message(m) for m in messages[self._seen_upto :]
-            )
-            self._seen_upto = len(messages)
-        tail, tail_start = self._tail(engine)
+        _, tail_start = self._tail(engine)
+        # The would-be-folded segment is what must reach UPDATE_DELTA_TOKENS
+        # -- NOT the whole un-folded span: the kept tail alone is 25% of
+        # budget (4096 tok at 16K) and always exceeds the trigger, which
+        # made every post-fold turn fire a degenerate memory+one-message
+        # merge (live: 23 merges on a 12-merge transcript, empty cascades).
+        foldable = messages[self._folded_upto : tail_start]
+        foldable_tokens = sum(engine.counter.count_message(m) for m in foldable)
         over_tau = self._raw_view_tokens(engine) > self._tau * engine.budget.max_context_tokens
-        delta_ready = self._delta_tokens >= UPDATE_DELTA_TOKENS
+        delta_ready = foldable_tokens >= UPDATE_DELTA_TOKENS
         if not (over_tau or delta_ready):
             return
         if engine.llm is None or tail_start <= self._folded_upto:
@@ -135,9 +135,8 @@ class RepresentationMemory(Strategy):
 
         # Merge only the new delta into the memory: the prompt never
         # contains history older than the memory itself already covers.
-        folded = messages[self._folded_upto : tail_start]
         delta = "\n".join(
-            f"[§{m.id}] {m.role.value}: {m.content}" for m in folded
+            f"[§{m.id}] {m.role.value}: {m.content}" for m in foldable
         )
         prompt = _MEMORY_PROMPT.format(
             target=MEMORY_TARGET_TOKENS,
@@ -155,9 +154,6 @@ class RepresentationMemory(Strategy):
         # flat's `or self._summary`).
         if completion.text.strip():
             self._memory = completion.text.strip()
-        self._delta_tokens = sum(
-            engine.counter.count_message(m) for m in messages[tail_start:]
-        )
         self._folded_upto = tail_start
         self._updates += 1
 

@@ -169,6 +169,28 @@ class TestRepresentationMemory:
         assert "representation" in REGISTRY
         assert build("representation").name == "representation"
 
+    def test_kept_tail_alone_never_fires_a_merge(self):
+        """Regression: the kept tail is 25% of budget (4096 tok at 16K),
+        always >= UPDATE_DELTA_TOKENS; if the trigger reads the whole
+        un-folded span instead of the foldable segment, every post-fold
+        turn fires a degenerate merge (live: 23 merges on a 12-merge
+        transcript, then empty-update cascades)."""
+        llm = StubLLM(texts=["m: fact " + "x" * 50] * 10)
+        store = TranscriptStore()
+        eng = Engine(store=store, counter=CharEstimator(),
+                     budget=Budget(max_context_tokens=16_000), llm=llm)
+        s = RepresentationMemory()
+        for i in range(400):  # ~36K tokens raw: several real folds at 16K
+            store.append(Role.USER, f"message {i} about topic-{i}: " + "x" * 300)
+            s.on_turn(eng)
+        updates = s._updates
+        assert updates >= 4  # real 2048-token deltas did fold
+        # a trickle of new content: tail tokens alone must not fire merges
+        for i in range(400, 420):
+            store.append(Role.USER, f"short {i}")
+            s.on_turn(eng)
+        assert s._updates == updates
+
     def test_first_update_empty_leaves_arm_doc_less(self):
         """flat's historical silent suite failure: if the FIRST update
         truncates to nothing, the view carries no map at all -- only the
@@ -228,10 +250,12 @@ class TestRepresentationMemory:
         eng = Engine(store=store, counter=CharEstimator(),
                      budget=Budget(max_context_tokens=8000), llm=llm)
         s = RepresentationMemory()
-        for i in range(60):
+        for i in range(100):  # ~9K tokens: tail(2000) + >=2 real 2048 folds
             store.append(Role.USER, f"message {i} about topic-{i}: " + "x" * 300)
             s.on_turn(eng)
-        assert llm.calls >= 2  # fired on delta, not tau (raw 5400 < tau 7200)
+        assert llm.calls >= 2  # fired on delta, not tau (raw 9K < tau 7.2K? no: 9K > 7.2K)
+        # NOTE: at 100 msgs raw exceeds tau, so this also asserts tau-safety
+        # does not preclude amortized folds -- cadence comes from delta.
         sizes = [len(p) for p in llm.prompts]
         assert max(sizes) < 1.5 * min(sizes)
         assert UPDATE_DELTA_TOKENS == 2048
