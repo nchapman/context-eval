@@ -6,6 +6,7 @@ from context_eval.strategies.context_editing import ContextEditing
 from context_eval.strategies.flat_compact import FlatCompact
 from context_eval.strategies.full_context import FullContext
 from context_eval.strategies.lcm import LCMDagger
+from context_eval.strategies.representation import RepresentationMemory
 from context_eval.strategies.retrieval import RetrievalOnly
 from context_eval.strategies.sliding_window import SlidingWindow
 
@@ -17,6 +18,7 @@ REGISTRY = {
     "flat-compact": FlatCompact,
     "arc": ARCCitations,
     "lcm": LCMDagger,
+    "representation": RepresentationMemory,
 }
 
 
@@ -36,6 +38,7 @@ __all__ = [
     "SlidingWindow",
     "ARCCitations",
     "LCMDagger",
+    "RepresentationMemory",
     "REGISTRY",
     "build",
 ]
