@@ -15,6 +15,10 @@ cd "$(dirname "$0")/.."
 set -a; . ./.env; set +a
 
 OUT=results/suite
+SKIP="${SKIP:-}"
+for a in "$@"; do case "$a" in --skip-*) SKIP="$SKIP ${a#--skip-}";; esac; done
+echo "skip legs:$SKIP"
+skip () { case " $SKIP " in *" $1 "*) return 0;; *) return 1;; esac; }
 mkdir -p "$OUT"/{swe,locomo,pi,thinking,logs}
 WARP=~/.pi/agent/sessions/--home-nchapman-Code-warp3090--/2026-10-06T00-33-40-625Z_01a10ea1-6510-722c-bc09-fb8681005a1e.jsonl
 ALL7="full-context,sliding-window,context-editing,flat-compact,retrieval,arc,lcm"
@@ -42,12 +46,14 @@ run3 () {  # run3 <tag> <path> <budgets> <samples> [extra args...]
 }
 
 echo "=== leg 1: SWE deployment tier (22 x 7 x {64K,128K}) ==="
-run3 swe data/swe_smoke.jsonl 64000,128000 22
+skip swe || run3 swe data/swe_smoke.jsonl 64000,128000 22
 
 echo "=== leg 2: LoCoMo (10 x 7 x {8K,16K}) ==="
-run3 locomo data/locomo.jsonl 8000,16000 10
+# QA capped at 12/sample (needles always kept): full LoCoMo QA sets run
+# 109-203 questions/run, which is a 10h+ leg for no statistical gain.
+run3 locomo data/locomo.jsonl 8000,16000 10 --max-questions 16
 
-if [ "${1:-}" != "--skip-recap" ]; then
+if [ "${1:-}" != "--skip-recap" ] && ! skip recap; then
   echo "=== leg 3a: fill thinking recap cache ==="
   uv run python scripts/thinking_arms.py recap "$WARP" --span-tokens 1000000 --batch 8 \
     > "$OUT/logs/recap.log" 2>&1
@@ -58,7 +64,7 @@ if [ "${1:-}" != "--skip-recap" ]; then
 fi
 
 echo "=== leg 3c: pi sessions (3 x 7 x {128K,256K}) ==="
-run3 pi data/pi_sessions.jsonl 128000,256000 3
+skip pi || run3 pi data/pi_sessions.jsonl 128000,256000 3
 
 echo "=== leg 3d: thinking ablation (drop/persist[/recap] x 7 x 128K) ==="
 ARMS="data/thinking_drop.jsonl data/thinking_persist.jsonl"
@@ -68,10 +74,10 @@ for arm in $ARMS; do
 done
 
 echo "=== reports ==="
-cat "$OUT"/swe/*.jsonl > "$OUT/swe.jsonl"
-cat "$OUT"/locomo/*.jsonl > "$OUT/locomo.jsonl"
-cat "$OUT"/pi/*.jsonl > "$OUT/pi.jsonl"
-cat "$OUT"/thinking/*/*.jsonl > "$OUT/thinking.jsonl"
+cat "$OUT"/swe/*.jsonl > "$OUT/swe.jsonl" 2>/dev/null || true
+cat "$OUT"/locomo/*.jsonl > "$OUT/locomo.jsonl" 2>/dev/null || true
+cat "$OUT"/pi/*.jsonl > "$OUT/pi.jsonl" 2>/dev/null || true
+cat "$OUT"/thinking/*/*.jsonl > "$OUT/thinking.jsonl" 2>/dev/null || true
 uv run python -m context_eval.report "$OUT"/swe.jsonl "$OUT"/locomo.jsonl \
   "$OUT"/pi.jsonl "$OUT"/thinking.jsonl --out "$OUT/report.md"
 echo "=== SUITE DONE ==="

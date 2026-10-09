@@ -35,8 +35,7 @@ def swe_like():
         dataset="open-swe-traces/v1.0/openhands",
         sample_id="r-1",
         messages=tuple(
-            ReplayMessage(role=Role.TOOL, content=f"obs {i} " + "x" * 100)
-            for i in range(6)
+            ReplayMessage(role=Role.TOOL, content=f"obs {i} " + "x" * 100) for i in range(6)
         ),
         meta={},
     )
@@ -86,3 +85,19 @@ class TestParseArgs:
         assert args.needles == 4
         assert args.max_questions == 0
         assert not args.skip_locomo_qa
+
+
+def test_question_cap_preserves_all_needles():
+    """Cap samples QA; every needle survives (depth curves depend on them)."""
+    msgs = tuple(ReplayMessage(role=Role.USER, content=f"m{i}", meta={}) for i in range(20))
+    qa = [
+        {"question": f"q{i}?", "answer": f"a{i}", "category": 1, "category_name": "single"}
+        for i in range(150)
+    ]
+    sample = ReplaySample(dataset="locomo", sample_id="s", messages=msgs, meta={"qa": qa})
+
+    _, questions = build_questions(sample, needles=4, seed=3, max_q=16, skip_locomo=False)
+    assert len(questions) == 16
+    kinds = [q.kind for q in questions]
+    assert kinds.count("needle") == 4  # all needles kept
+    assert kinds.count("locomo") == 12  # QA capped, seeded subset

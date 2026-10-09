@@ -55,7 +55,15 @@ def build_questions(sample, needles: int, seed: int, max_q: int, skip_locomo: bo
         ]
     if max_q and len(questions) > max_q:
         rng = random.Random(seed)
-        questions = rng.sample(questions, max_q)
+        # Cap the QA pool; keep every needle (they drive the depth curves,
+        # and a uniform sample of 4-in-150 would typically drop them all).
+        needles_q = [q for q in questions if q.kind == "needle"]
+        other = [q for q in questions if q.kind != "needle"]
+        keep = max(0, max_q - len(needles_q))
+        if len(other) > keep:
+            rng.shuffle(other)
+            other = other[:keep]
+        questions = needles_q + other
     return injected, questions
 
 
