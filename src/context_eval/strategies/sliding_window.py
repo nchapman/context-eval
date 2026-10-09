@@ -8,7 +8,6 @@ the same budget axis as every other strategy in the sweep.
 from __future__ import annotations
 
 from context_eval.strategies.base import Engine, Strategy
-from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
 from context_eval.types import PromptMessage
 
 
@@ -21,7 +20,7 @@ class SlidingWindow(Strategy):
         used = 0
         # Walk newest -> oldest; stop at the first message that does not fit.
         for msg in reversed(engine.store.messages()):
-            cost = engine.counter.count_text(msg.content) + MESSAGE_OVERHEAD_TOKENS
+            cost = engine.counter.count_message(msg)
             if used + cost > budget:
                 break
             used += cost

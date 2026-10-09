@@ -19,8 +19,8 @@ from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyS
 from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
 from context_eval.types import PromptMessage, Role
 
-HEAD_CHARS = 160
-TAIL_CHARS = 120
+HEAD_CHARS = 100
+TAIL_CHARS = 60
 # Paper's rho: observations at or below this token count stay verbatim.
 RHO_TOKENS = 64
 
@@ -36,17 +36,16 @@ def _preview(text: str) -> str:
 
 
 def make_citation(message_id: str, content: str, tokens: int) -> str:
+    # Lean by design: the full citation must cost LESS than rho tokens so
+    # citing any observation above rho always shrinks the view (the paper's
+    # invariant). ~220 chars ~= 55 tokens < RHO_TOKENS=64.
     flat = _preview(content)
     head = flat[:HEAD_CHARS]
     tail = flat[-TAIL_CHARS:] if len(flat) > HEAD_CHARS + TAIL_CHARS else ""
-    parts = [
-        f"[§{message_id} tool output — compacted, {tokens} tokens total]",
-        f"head: {head}",
-    ]
+    lines = [f"[§{message_id} · {tokens} tok · {_RECALL_NAME} to expand]", f"head: {head}"]
     if tail:
-        parts.append(f"tail: {tail}")
-    parts.append(f'full content: use the {_RECALL_NAME} tool with id "{message_id}"')
-    return "\n".join(parts)
+        lines.append(f"tail: {tail}")
+    return "\n".join(lines)
 
 
 class ARCCitations(Strategy):
@@ -66,7 +65,7 @@ class ARCCitations(Strategy):
         entries: list[tuple[int, PromptMessage]] = []
         total = 0
         for idx, m in enumerate(messages):
-            cost = counter.count_text(m.content) + MESSAGE_OVERHEAD_TOKENS
+            cost = counter.count_message(m)
             entries.append((idx, m.to_prompt()))
             total += cost
 
@@ -74,7 +73,7 @@ class ARCCitations(Strategy):
         # tiny. Rank by size (largest first), oldest as tiebreak.
         candidates = sorted(
             (
-                (counter.count_text(m.content) + MESSAGE_OVERHEAD_TOKENS, -i, m)
+                (counter.count_message(m), -i, m)
                 for i, m in enumerate(messages)
                 if m.role is Role.TOOL
                 and counter.count_text(m.content) > self.rho_tokens

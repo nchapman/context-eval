@@ -29,10 +29,10 @@ class TestCitation:
         content = "A" * 400 + "NEEDLE-VALUE" + "B" * 400
         citation = make_citation("m000003", content, tokens=204)
 
-        assert citation.startswith("[§m000003 tool output — compacted, 204 tokens total]")
+        assert citation.startswith("[§m000003 · 204 tok · _recall to expand]")
         assert "head: " in citation
         assert "tail: " in citation
-        assert 'use the _recall tool with id "m000003"' in citation
+        assert len(citation) // 4 < 64  # cheaper than rho: citing always shrinks
 
     def test_short_content_omits_tail(self):
         citation = make_citation("m1", "short", tokens=1)

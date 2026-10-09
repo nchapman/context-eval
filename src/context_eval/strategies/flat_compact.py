@@ -59,9 +59,7 @@ class FlatCompact(Strategy):
         used = 0
         start = len(messages)
         for i in range(len(messages) - 1, self._summarized_upto - 1, -1):
-            cost = (
-                engine.counter.count_text(messages[i].content) + MESSAGE_OVERHEAD_TOKENS
-            )
+            cost = engine.counter.count_message(messages[i])
             if used + cost > budget:
                 break
             used += cost
@@ -77,7 +75,7 @@ class FlatCompact(Strategy):
         messages = engine.store.messages()
         summary = engine.counter.count_text(self._summary) if self._summary else 0
         return summary + MESSAGE_OVERHEAD_TOKENS + sum(
-            engine.counter.count_text(m.content) + MESSAGE_OVERHEAD_TOKENS
+            engine.counter.count_message(m)
             for m in messages[self._summarized_upto :]
         )
 

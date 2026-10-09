@@ -181,6 +181,70 @@ def test_count_messages_includes_tool_call_arguments():
     assert calls_cost > bare_cost * 2  # argument tokens materially counted
 
 
+def test_strategies_hold_budget_under_tool_args_load():
+    """Regression: internal budget arithmetic must match count_messages
+    (content + overhead + tool_call args). Before the fix, window/editing
+    kept messages whose args pushed the real view over budget, and
+    flat-compact's trigger under-read ~1.5K tokens so it compacted too
+    late and overflowed (live smoke: flat overflow@91 with the trigger
+    threshold already passed)."""
+    calls = [{"name": "bash", "arguments": {"cmd": "x" * 4000}}]  # ~1000 tok of args
+    msgs = []
+    for i in range(40):
+        msgs.append(
+            ("assistant", f"step {i}", {"tool_calls": calls})
+        )
+        msgs.append(("tool", "result " + "r" * 120))
+    budget = 16_000
+
+    store = TranscriptStore()
+    for role, content, *meta in msgs:
+        store.append(Role(role), content, meta=meta[0] if meta else {})
+    eng = Engine(
+        store=store,
+        counter=CharEstimator(),
+        budget=Budget(max_context_tokens=budget),
+    )
+    oracle = CharEstimator()
+
+    from context_eval.strategies.sliding_window import SlidingWindow
+
+    for strat in (SlidingWindow(), ContextEditing()):
+        view = strat.assemble(eng)
+        real = oracle.count_messages(view)
+        assert real <= budget, f"{strat.name}: view {real} > {budget}"
+
+    # ARC cannot shrink assistant tool_call args (design boundary), but on
+    # a tool-payload-dominated corpus its cited view must hold the budget.
+    store2 = TranscriptStore()
+    for i in range(40):
+        store2.append(
+            Role.ASSISTANT,
+            f"step {i}",
+            meta={"tool_calls": [{"name": "bash", "arguments": {"cmd": f"cmd {i}"}}]},
+        )
+        store2.append(Role.TOOL, "result " + "r" * 2400)  # ~600 tok each
+    eng2 = Engine(
+        store=store2,
+        counter=CharEstimator(),
+        budget=Budget(max_context_tokens=budget),
+    )
+    from context_eval.strategies.arc import ARCCitations
+
+    arc_view = ARCCitations().assemble(eng2)
+    arc_real = oracle.count_messages(arc_view)
+    assert arc_real <= budget, f"arc: view {arc_real} > {budget}"
+
+    # flat-compact's trigger reads the same wire cost as the oracle
+    from context_eval.strategies.flat_compact import FlatCompact
+
+    s = FlatCompact()
+    s.on_turn(eng)  # llm is None: cannot compact, but the trigger reads true cost
+    raw = s._raw_view_tokens(eng)
+    verbatim = oracle.count_messages([m.to_prompt() for m in store.messages()])
+    assert abs(raw - verbatim) < 32  # differs only by the summary marker (~2 msgs)
+
+
 def test_registry_entries():
     from context_eval.strategies import REGISTRY, build
 

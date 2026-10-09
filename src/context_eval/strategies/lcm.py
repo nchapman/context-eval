@@ -30,7 +30,6 @@ from dataclasses import dataclass
 
 from context_eval.provider import ToolSchema
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
-from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
 from context_eval.types import PromptMessage, Role, Usage
 
 TAU_SOFT = 0.70  # fraction of budget: begin compacting between turns
@@ -121,7 +120,7 @@ class LCMDagger(Strategy):
         tokens = 0
         start = self._frontier
         for m in messages[start:]:
-            cost = counter.count_text(m.content) + MESSAGE_OVERHEAD_TOKENS
+            cost = counter.count_message(m)
             if chunk and tokens + cost > max(chunk_target, cost):
                 break
             chunk.append(m)

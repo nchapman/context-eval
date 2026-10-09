@@ -17,7 +17,6 @@ Comparisons this arm anchors:
 from __future__ import annotations
 
 from context_eval.strategies.base import Engine, Strategy
-from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
 from context_eval.types import PromptMessage, Role
 
 STUB_CHARS = 120  # head of a cleared result kept as a stub
@@ -32,10 +31,7 @@ class ContextEditing(Strategy):
         messages = engine.store.messages()
 
         # Verbatim cost of everything; under the trigger, nothing to edit.
-        total = sum(
-            engine.counter.count_text(m.content) + MESSAGE_OVERHEAD_TOKENS
-            for m in messages
-        )
+        total = sum(engine.counter.count_message(m) for m in messages)
         if total <= EDIT_TAU * budget:
             return [m.to_prompt() for m in messages]
 
@@ -48,7 +44,7 @@ class ContextEditing(Strategy):
                 break
             if msg.role is not Role.TOOL:
                 continue
-            full = engine.counter.count_text(msg.content)
+            full = engine.counter.count_message(msg)
             stub = f"[cleared] {msg.content[:STUB_CHARS]}…"
             cleared[msg.id] = stub
             edited_total -= full - engine.counter.count_text(stub)

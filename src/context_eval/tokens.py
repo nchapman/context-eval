@@ -32,17 +32,19 @@ class TokenCounter(ABC):
     @abstractmethod
     def count_text(self, text: str) -> int: ...
 
-    def count_messages(self, messages: Sequence[PromptMessage | Message]) -> int:
-        total = 0
-        for m in messages:
-            total += self.count_text(m.content) + MESSAGE_OVERHEAD_TOKENS
-            # Tool-call arguments ride the wire (view_to_wire) but live in
-            # meta, not content -- count them or views undercount ~10-16%
-            # on tool-heavy traces (measured on data/swe_smoke.jsonl).
-            calls = getattr(m, "meta", {}).get("tool_calls")
-            if calls:
-                total += self.count_text(json.dumps(calls, separators=(",", ":")))
+    def count_message(self, message: PromptMessage | Message) -> int:
+        """True wire cost of one message: content + overhead + tool-call
+        arguments from meta. All strategy-internal budget arithmetic must go
+        through this (not count_text(content)) so triggers match the
+        driver's measurement exactly."""
+        total = self.count_text(message.content) + MESSAGE_OVERHEAD_TOKENS
+        calls = getattr(message, "meta", {}).get("tool_calls")
+        if calls:
+            total += self.count_text(json.dumps(calls, separators=(",", ":")))
         return total
+
+    def count_messages(self, messages: Sequence[PromptMessage | Message]) -> int:
+        return sum(self.count_message(m) for m in messages)
 
 
 class CharEstimator(TokenCounter):
