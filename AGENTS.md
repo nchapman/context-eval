@@ -98,6 +98,19 @@ score 0 by design (that is `acc*`).
 **Never edit `run_suite.sh` (or any bash script) while it executes** —
 bash reads incrementally. Wait for completion or work on a copy.
 
+**Background jobs & process matching** (three incidents, one rule each):
+- `pgrep/pkill -f` patterns must not match your own wrapper: use a
+  character class (`context_eval[.]run_eval`) — a literal pattern in your
+  command line matches the command itself (a watcher that never exits, a
+  pkill that dies mid-sweep at exit 143).
+- A function that backgrounds its work internally (`run() { uv ... & }`)
+  must be called WITHOUT a trailing `&`: the extra `&` turns the call into
+  a grandchild the invoking shell's `wait` never sees — the script
+  'completes' while workers are orphaned mid-run.
+- A task's completion only covers its own process tree. Anything you
+  backgrounded separately keeps running: verify with `ps` (by PID list,
+  not pattern assumptions) before treating work as finished.
+
 **Commits.** Imperative subject, evidence in the body (measurements,
 file:line, what would have caught it). Tests + lint green per commit.
 Runs stay out of git (`results/`); corpora in `data/` are reproducible via
