@@ -2,6 +2,8 @@
 
 from context_eval.strategies.arc import ARCCitations
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
+from context_eval.strategies.context_editing import ContextEditing
+from context_eval.strategies.flat_compact import FlatCompact
 from context_eval.strategies.full_context import FullContext
 from context_eval.strategies.lcm import LCMDagger
 from context_eval.strategies.retrieval import RetrievalOnly
@@ -11,6 +13,8 @@ REGISTRY = {
     "full-context": FullContext,
     "sliding-window": SlidingWindow,
     "retrieval": RetrievalOnly,
+    "context-editing": ContextEditing,
+    "flat-compact": FlatCompact,
     "arc": ARCCitations,
     "lcm": LCMDagger,
 }
