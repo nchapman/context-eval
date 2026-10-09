@@ -138,27 +138,22 @@ class TestRanking:
         assert "line 480" in hits[0][1]
 
 
-class TestEngineParity:
-    def corpus(self, use_fts):
-        index = Bm25Index(use_fts=use_fts)
+class TestRankingOrder:
+    def corpus(self):
+        index = Bm25Index()
         index.add("m000001", "we pinned pytest to 8.2.1 in the CI config")
         index.add("m000002", "unrelated chatter about lunch plans")
         index.add("m000003", "the flaky test was in parser/test_hex.py")
         index.add("m000004", "reverted the pytest pin back to 8.0")
         return index
 
-    def test_fts_and_fallback_agree_on_top_hit(self):
-        for query in ("flaky pytest test", "pytest pin", "lunch"):
-            fts = self.corpus(use_fts=True).search(query, limit=2)
-            fallback = self.corpus(use_fts=False).search(query, limit=2)
-            assert fts[0][0] == fallback[0][0], query
+    def test_top_hit_per_query(self):
+        for query, expected in (
+            ("flaky test parser", "m000003"),
+            ("lunch plans", "m000002"),
+            ("pytest pin reverted", "m000004"),
+        ):
+            assert self.corpus().search(query, limit=1)[0][0] == expected
 
-    def test_fts_engine_active_when_available(self):
-        index = self.corpus(use_fts=True)
-        assert index._conn is not None  # FTS5 is compiled in
-
-    def test_fallback_engine_used_when_fts_unavailable(self):
-        index = self.corpus(use_fts=False)
-        assert index._conn is None
-        hits = index.search("parser", limit=1)
-        assert hits[0][0] == "m000003"
+    def test_no_match_returns_empty(self):
+        assert self.corpus().search("zzzz nonexistent terms", limit=1) == []

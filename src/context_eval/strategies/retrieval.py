@@ -6,11 +6,12 @@ over the verbatim archive. No compaction, no summaries, no resident
 previews -- the LLM never runs during replay.
 
 Ranking is a Python port of the pi-extensions recall design (battle-tested
-in production): hand-rolled BM25 over line-aligned chunks with
+in production): hand-rolled Okapi BM25 over line-aligned chunks with
 identifier-aware tokenization (``parseHeader`` matches "parse header"),
 multiplied by an exponential recency decay measured in archive positions
 from the frontier (floored, so old content fades but never vanishes).
-Citation: ../pi-extensions/extensions/recall.ts.
+Pure Python, deterministic, no dependencies. Citation:
+../pi-extensions/extensions/recall.ts.
 
 Factorially this completes the strategy grid:
 
@@ -29,7 +30,6 @@ from __future__ import annotations
 
 import math
 import re
-import sqlite3
 from collections.abc import Mapping
 from typing import Any
 
@@ -76,22 +76,12 @@ def chunk_text(text: str, max_chars: int = CHUNK_CHARS) -> list[str]:
 
 
 class Bm25Index:
-    """Decayed BM25 over message chunks; deterministic, no dependencies.
-
-    Scoring runs on SQLite FTS5 (the same engine LCM's history_search uses;
-    bm25 with k1=1.2, b=0.75) over identifier-tokenized chunk text, with a
-    two-stage re-rank: FTS5 fetches top candidates, Python applies the
-    memory-horizon decay. Environments without FTS5 fall back to a pure
-    Python scorer implementing the identical policy. Engine pattern per
-    alexgarcia.xyz/blog/2024/sqlite-vec-hybrid-search (candidate fetch,
-    then fuse); a sqlite-vec hybrid arm is a natural future extension.
-    """
+    """Decayed Okapi BM25 over message chunks; deterministic, no dependencies."""
 
     def __init__(
         self,
         half_life: float = HALF_LIFE_MESSAGES,
         floor: float = RECENCY_FLOOR,
-        use_fts: bool = True,
     ) -> None:
         self.half_life = half_life
         self.floor = floor
@@ -99,17 +89,6 @@ class Bm25Index:
         self._texts: dict[str, str] = {}
         self._df: dict[str, int] = {}
         self._total_len = 0
-        self._conn: sqlite3.Connection | None = None
-        if use_fts:
-            try:
-                conn = sqlite3.connect(":memory:")
-                conn.execute(
-                    "CREATE VIRTUAL TABLE chunks USING "
-                    "fts5(msg_id UNINDEXED, pos UNINDEXED, content)"
-                )
-                self._conn = conn
-            except sqlite3.Error:
-                self._conn = None
 
     def add(self, message_id: str, content: str) -> None:
         pos = len(self._chunks)
@@ -125,48 +104,14 @@ class Bm25Index:
             self._total_len += len(tokens)
             self._chunks.append((message_id, tf, pos))
             self._texts[message_id] = content
-            if self._conn is not None:
-                self._conn.execute(
-                    "INSERT INTO chunks (msg_id, pos, content) VALUES (?, ?, ?)",
-                    (message_id, pos, " ".join(tokens)),
-                )
 
     def search(self, query: str, limit: int = 5) -> list[tuple[str, str]]:
         terms = set(tokenize(query))
         if not terms or not self._chunks:
             return []
-        if self._conn is not None:
-            ranked = self._fts_candidates(terms)
-        else:
-            ranked = self._python_scores(terms)
-        frontier = self._chunks[-1][2]
-        scored: list[tuple[float, int, str]] = []
-        for raw, pos, msg_id in ranked:
-            age = frontier - pos
-            recency = max(self.floor, 0.5 ** (age / self.half_life))
-            scored.append((raw * recency, pos, msg_id))
-        scored.sort(key=lambda s: (-s[0], -s[1], s[2]))
-        return [(msg_id, self._snippet(msg_id, terms)) for _, _, msg_id in scored[:limit]]
-
-    def _fts_candidates(
-        self, terms: set[str], fetch: int = 50
-    ) -> list[tuple[float, int, str]]:
-        """Raw bm25 scores from FTS5 (descending); -rank is the score."""
-        match = " OR ".join(f'"{t}"' for t in sorted(terms))
-        try:
-            cursor = self._conn.execute(
-                "SELECT msg_id, pos, rank FROM chunks "
-                "WHERE chunks MATCH ? ORDER BY rank LIMIT ?",
-                (match, fetch),
-            )
-            return [(-row[2], row[1], row[0]) for row in cursor]
-        except sqlite3.Error:
-            return self._python_scores(terms)
-
-    def _python_scores(self, terms: set[str]) -> list[tuple[float, int, str]]:
-        """Fallback scorer: identical Okapi BM25 over the same chunks."""
         n = len(self._chunks)
         avg = self._total_len / n
+        frontier = self._chunks[-1][2]
         scored: list[tuple[float, int, str]] = []
         for msg_id, tf, pos in self._chunks:
             score = 0.0
@@ -182,10 +127,13 @@ class Bm25Index:
                 ) / (
                     f + BM25_K1 * (1 - BM25_B + BM25_B * length / avg)
                 )
-            if score > 0:
-                scored.append((score, pos, msg_id))
+            if score <= 0:
+                continue
+            age = frontier - pos
+            recency = max(self.floor, 0.5 ** (age / self.half_life))
+            scored.append((score * recency, pos, msg_id))
         scored.sort(key=lambda s: (-s[0], -s[1], s[2]))
-        return scored
+        return [(msg_id, self._snippet(msg_id, terms)) for _, _, msg_id in scored[:limit]]
 
     def _snippet(self, message_id: str, terms: set[str]) -> str:
         text = self._texts.get(message_id, "")
