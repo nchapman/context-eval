@@ -303,6 +303,7 @@ class TestTopicsSwitch:
 
     def test_summary_max_tokens_env_override(self, monkeypatch):
         import importlib
+
         import context_eval.strategies.lcm as lcm_mod
 
         monkeypatch.setenv("CONTEXT_EVAL_SUMMARY_MAX_TOKENS", "8192")
