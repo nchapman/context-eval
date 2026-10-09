@@ -91,6 +91,8 @@ class Cell:
     compactions_mean: float
     tool_calls_per_q: float
     acc_penalized: float  # unanswered (overflow/errored runs) counted as 0
+    abstain_rate: float  # blank predictions among answered (honest misses)
+    confab_rate: float  # non-blank and wrong (confident misses)
     cost_per_q: float
     overhead_cost_mean: float
     cached_share: float
@@ -127,6 +129,11 @@ def aggregate(runs: list[dict]) -> list[Cell]:
         scored = [a for a in answers if a.get("score_method") != "error"]
         successes = sum(1 for a in scored if a["score"] >= 0.5)
         lo, hi = wilson_interval(successes, len(scored))
+        # Answer-mode split: abstention (blank prediction) is an honest
+        # failure; confabulation (confident but wrong) is the silent one.
+        # Headline acc conflates them -- the split is the finding.
+        abstained = sum(1 for a in scored if not (a.get("prediction") or "").strip())
+        wrong = len(scored) - successes - abstained
         # Overflow/errored runs answer nothing: score them as failures so
         # survival-conditioned `acc` cannot flatter overflow-prone arms
         # (arc, context-editing, full-context) at tight budgets.
@@ -169,6 +176,8 @@ def aggregate(runs: list[dict]) -> list[Cell]:
                 errored=sum(1 for r in group if r["error"]),
                 questions=len(answers),
                 answered=len(scored),
+                abstain_rate=abstained / len(scored) if scored else 0.0,
+                confab_rate=wrong / len(scored) if scored else 0.0,
                 acc=successes / len(scored) if scored else 0.0,
                 acc_penalized=successes / denom if denom else 0.0,
                 acc_lo=lo,
@@ -224,18 +233,20 @@ def render_markdown(cells: list[Cell], curves: dict[str, list]) -> str:
         "share of answering prompt tokens served from prefix cache. rewrite =",
         "acc = accuracy over answered questions; acc* = overflow-penalized",
         "(questions in overflowed/errored runs count as wrong).",
+        "abst = blank-prediction rate among answered (honest miss, scores 0);",
+        "confab = answered-wrong rate (confident miss). acc alone conflates them.",
         "share of turns where the strategy changed its view head (cache bust).",
         "conv view tok = cumulative resident-context tokens over the replay.",
         "",
-        "| strategy | tier | runs | ovf | acc | acc* | 95% CI | pass tok/q | pass $/q |"
+        "| strategy | tier | runs | ovf | acc | acc* | 95% CI | abst | confab | pass tok/q | pass $/q |"
         " cached | rewrite | conv view tok | ohd $ | cmp | tools/q |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for c in cells:
         lines.append(
             f"| {c.label} | {c.tier} | {c.runs} | {c.overflowed} | {c.acc:.2f} "
             f"| {c.acc_penalized:.2f} "
-            f"| [{c.acc_lo:.2f}, {c.acc_hi:.2f}] | {c.pass_tok_per_q:,.0f} "
+            f"| [{c.acc_lo:.2f}, {c.acc_hi:.2f}] | {c.abstain_rate:.0%} | {c.confab_rate:.0%} | {c.pass_tok_per_q:,.0f} "
             f"| ${c.cost_per_q:.4f} | {c.cached_share:.0%} | {c.view_rewrite_rate:.0%} "
             f"| {c.conv_view_tok_mean:,.0f} | ${c.overhead_cost_mean:.4f} "
             f"| {c.compactions_mean:.1f} | {c.tool_calls_per_q:.2f} |"
