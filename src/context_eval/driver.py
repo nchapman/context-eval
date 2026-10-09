@@ -71,6 +71,7 @@ class AnswerRecord:
     model: str = ""
     provider: str = ""
     error: str | None = None  # per-question failure (scored 0, run continues)
+    meta: dict = field(default_factory=dict)  # question meta (terms, distractors)
 
 
 @dataclass
@@ -344,6 +345,7 @@ def _ask(
         tool_calls=tool_call_count,
         model=model,
         provider=provider,
+        meta=dict(question.meta),
     )
 
 

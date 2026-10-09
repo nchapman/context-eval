@@ -116,6 +116,88 @@ FACTS: tuple[_FactSpec, ...] = (
 )
 
 
+_TOPIC_SPECS: tuple[tuple[str, str], ...] = (
+    # (distinctive token, conversational mention spoken by the user)
+    ("amphora", "Let's call the retry-queue rework 'amphora' — still open, we haven't started it."),
+    ("FIRE-1147", "I filed the flaky-test investigation as FIRE-1147; that one's resolved now."),
+    ("kestrel", "The API migration is codename 'kestrel', paused until the security audit clears."),
+    ("ORION-3", "ORION-3 is the new auth service, still mid-rollout."),
+    ("tessellate", "The design-system refresh is nicknamed 'tessellate', about halfway done."),
+    ("waypoint", "The CI dashboard project is 'waypoint' — that shipped last month."),
+    ("halcyon", "The data-lake consolidation goes by 'halcyon', still just planning."),
+    ("VELA-9", "Feature-flag cleanup is tracked as VELA-9, resolved."),
+    ("bramble", "The parser rewrite we keep deferring is 'bramble', still open."),
+    ("osprey", "The new CLI is 'osprey', currently in beta."),
+    ("LATTICE-2", "Schema normalization is LATTICE-2, blocked on review."),
+    ("corvid", "The admin-panel revamp is 'corvid', paused for now."),
+    ("sundial", "The scheduler migration is 'sundial' — that one shipped."),
+    ("THETA-7", "The on-call rotation redesign is THETA-7, still open."),
+    ("palimpsest", "The docs-site redo is 'palimpsest', in progress."),
+    ("grebe", "The profiler work is 'grebe', just started."),
+    ("NOVA-11", "Billing reconciliation is NOVA-11, resolved last sprint."),
+    ("inkwell", "The audit-log service is 'inkwell', deployed to prod."),
+    ("curlew", "Search-relevance tuning goes by 'curlew', ongoing."),
+    ("PERIDOT-4", "The email-digest redesign is PERIDOT-4, on hold."),
+)
+
+CONTINUITY_QUESTION = (
+    "We've been working together for a while. In a short list, name the "
+    "main projects, topics, or investigations we've discussed — one line "
+    "each, with a word on status if you recall it. Only list things you're "
+    "confident actually came up between us; if you can't recall the topic "
+    "inventory, say so."
+)
+
+
+def inject_topics(
+    sample: ReplaySample, count: int, rng: Rng
+) -> tuple[ReplaySample, list[str], list[str]]:
+    """Seed conversational topic markers; return (sample, seeded, distractors).
+
+    Markers ride natural USER (fallback ASSISTANT) turns, never a message
+    already needle-bearing. Distractors are pool tokens NOT seeded here —
+    listing one is a false memory. The question that probes them (see
+    CONTINUITY_QUESTION) contains no searchable terms: recovery is only
+    possible if the resident view carries a map of the topics.
+    """
+    if count <= 0:
+        return sample, [], []
+    eligible = [
+        i
+        for i, m in enumerate(sample.messages)
+        if m.role in (Role.USER, Role.ASSISTANT) and not m.meta.get("needle")
+    ]
+    if not eligible:
+        return sample, [], []
+    order = list(range(len(_TOPIC_SPECS)))
+    rng.shuffle(order)
+    chosen = order[: min(count, len(_TOPIC_SPECS), len(eligible))]
+    positions = _spread(len(chosen), eligible)
+    messages = list(sample.messages)
+    seeded: list[str] = []
+    for token_idx, pos in zip(chosen, positions, strict=True):
+        token, mention = _TOPIC_SPECS[token_idx]
+        target = messages[pos]
+        # End-of-turn append is natural chat phrasing here and safe: only
+        # TOOL observations get previewed/cited (arc), so the needle-style
+        # random-line placement rule does not apply to user/assistant turns.
+        content = target.content + "\n" + mention
+        messages[pos] = ReplayMessage(role=target.role, content=content, meta=dict(target.meta))
+        seeded.append(token)
+    distractors = [t for i, (t, _) in enumerate(_TOPIC_SPECS) if i not in chosen]
+    rng.shuffle(distractors)
+    return (
+        ReplaySample(
+            dataset=sample.dataset,
+            sample_id=sample.sample_id,
+            messages=tuple(messages),
+            meta=sample.meta,
+        ),
+        seeded,
+        distractors[:4],
+    )
+
+
 def _eligible_indices(sample: ReplaySample) -> list[int]:
     tool_idx = [i for i, m in enumerate(sample.messages) if m.role is Role.TOOL]
     if tool_idx:

@@ -100,6 +100,17 @@ def score_question(question: Question, prediction: str) -> Score:
         )
     if question.kind == "trace_qa":
         return Score(f1_score(prediction, question.answer), "trace_f1")
+    if question.kind == "continuity":
+        terms = list(question.meta.get("terms", []))
+        distractors = list(question.meta.get("distractors", []))
+        low = prediction.lower()
+        hits = sum(1 for t in terms if t.lower() in low)
+        false = sum(1 for d in distractors if d.lower() in low)
+        recall = hits / len(terms) if terms else 0.0
+        # False memories (listing pool topics never seeded in this
+        # transcript) cost a quarter-topic each: confident invention is
+        # worse than omission for the continuity feeling we measure.
+        return Score(max(0.0, recall - 0.25 * false), "continuity_recall")
     raise ValueError(f"unknown question kind: {question.kind}")
 
 

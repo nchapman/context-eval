@@ -196,6 +196,36 @@ def aggregate(runs: list[dict]) -> list[Cell]:
     return cells
 
 
+def continuity_table(runs: list[dict]) -> list[tuple[str, int, float, float, float]]:
+    """(strategy, n, topic recall, false-memory rate, abstention) over
+    continuity-probe answers. Recall = seeded topics enumerated; false
+    memory = pool topics never seeded in that transcript but listed
+    anyway. The probe question is uncued: recovery requires the resident
+    view to carry a topic map, which is the continuity users feel."""
+    per: dict[str, list[float]] = {}
+    for run in runs:
+        for a in run["answers"]:
+            if a.get("kind") != "continuity":
+                continue
+            row = per.setdefault(run["strategy"], [0.0, 0.0, 0.0, 0])
+            pred = (a.get("prediction") or "")
+            low = pred.lower()
+            terms = [t.lower() for t in a.get("meta", {}).get("terms", [])]
+            distractors = [d.lower() for d in a.get("meta", {}).get("distractors", [])]
+            if terms:
+                row[0] += sum(1 for t in terms if t in low) / len(terms)
+            if distractors:
+                row[1] += sum(1 for d in distractors if d in low) / len(distractors)
+            if not pred.strip():
+                row[2] += 1
+            row[3] += 1
+    return [
+        (s, row[3], row[0] / row[3], row[1] / row[3], row[2] / row[3])
+        for s, row in sorted(per.items())
+        if row[3]
+    ]
+
+
 def depth_curves(runs: list[dict]) -> dict[str, list[tuple[str, float, int]]]:
     """Per strategy: accuracy by needle-depth bucket (bucket, acc, n)."""
     per_strategy: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(lambda: [0, 0]))
@@ -278,6 +308,26 @@ def render_markdown(cells: list[Cell], curves: dict[str, list]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_continuity(table: list[tuple[str, int, float, float, float]]) -> str:
+    lines = [
+        "",
+        "## Continuity probe (uncued topic inventory)",
+        "",
+        "One question per sample with NO searchable terms: name the main",
+        "topics discussed. Seeded topic markers ride natural conversational",
+        "turns; recall = fraction enumerated, false mem = pool topics never",
+        "seeded in that transcript but listed anyway. Recovery requires the",
+        "resident view to carry a topic map — pull-recall metrics do not",
+        "measure this.",
+        "",
+        "| strategy | n | topic recall | false memories | abstained |",
+        "|---|---|---|---|---|",
+    ]
+    for s, n, rec, false, abst in table:
+        lines.append(f"| {s} | {n} | {rec:.0%} | {false:.0%} | {abst:.0%} |")
+    return "\n".join(lines) + "\n"
+
+
 def plot_pareto(cells: list[Cell], path: str | Path) -> None:
     import matplotlib
 
@@ -351,6 +401,9 @@ def main(argv: list[str] | None = None) -> int:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     report = render_markdown(cells, curves)
+    cont = continuity_table(runs)
+    if cont:
+        report += render_continuity(cont)
     args.out.write_text(report)
 
     models = {r.get("model") for r in runs if r.get("model")}

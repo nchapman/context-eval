@@ -21,7 +21,12 @@ from context_eval.datasets.base import read_jsonl
 from context_eval.driver import run_sample
 from context_eval.env import load_env
 from context_eval.provider import OpenRouterClient
-from context_eval.questions import Question, inject_needles
+from context_eval.questions import (
+    CONTINUITY_QUESTION,
+    Question,
+    inject_needles,
+    inject_topics,
+)
 from context_eval.strategies import REGISTRY, build
 from context_eval.tokens import default_counter
 
@@ -33,6 +38,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--budgets", default="16000,32000")
     parser.add_argument("--samples", type=int, default=4, help="samples to evaluate")
     parser.add_argument("--needles", type=int, default=4, help="needles per sample")
+    parser.add_argument("--topics", type=int, default=0,
+                        help="topic markers per sample; adds one uncued continuity question")
     parser.add_argument("--max-questions", type=int, default=0, help="cap per sample (0 = all)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=Path("results/run.jsonl"))
@@ -40,8 +47,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def build_questions(sample, needles: int, seed: int, max_q: int, skip_locomo: bool):
+def build_questions(
+    sample, needles: int, seed: int, max_q: int, skip_locomo: bool, topics: int = 0
+):
     injected, questions = inject_needles(sample, n=needles, seed=seed)
+    rng = random.Random(seed ^ 0x5EED)
+    if topics:
+        injected, seeded, distractors = inject_topics(injected, topics, rng)
+        if seeded:
+            questions.append(
+                Question(
+                    kind="continuity",
+                    question=CONTINUITY_QUESTION,
+                    answer="",
+                    category="continuity",
+                    meta={"terms": seeded, "distractors": distractors},
+                )
+            )
     if not skip_locomo and sample.meta.get("qa"):
         questions += [
             Question(
@@ -55,15 +77,15 @@ def build_questions(sample, needles: int, seed: int, max_q: int, skip_locomo: bo
         ]
     if max_q and len(questions) > max_q:
         rng = random.Random(seed)
-        # Cap the QA pool; keep every needle (they drive the depth curves,
-        # and a uniform sample of 4-in-150 would typically drop them all).
-        needles_q = [q for q in questions if q.kind == "needle"]
-        other = [q for q in questions if q.kind != "needle"]
-        keep = max(0, max_q - len(needles_q))
+        # Cap the QA pool; keep every needle (depth curves) and the
+        # continuity probe (it is one question and never droppable).
+        keepers = [q for q in questions if q.kind in ("needle", "continuity")]
+        other = [q for q in questions if q.kind not in ("needle", "continuity")]
+        keep = max(0, max_q - len(keepers))
         if len(other) > keep:
             rng.shuffle(other)
             other = other[:keep]
-        questions = needles_q + other
+        questions = keepers + other
     return injected, questions
 
 
@@ -92,7 +114,8 @@ def main(argv: list[str] | None = None) -> int:
     with args.out.open("w") as out_file:  # truncate: reruns replace, never accumulate
         for sample in samples:
             injected, questions = build_questions(
-                sample, args.needles, args.seed, args.max_questions, args.skip_locomo_qa
+                sample, args.needles, args.seed, args.max_questions, args.skip_locomo_qa,
+                topics=args.topics,
             )
             for name in strategy_names:
                 for budget in budgets:
