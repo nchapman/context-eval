@@ -46,7 +46,10 @@ SIBLINGS_TO_MERGE = 4
 # (measured: reasoning_tok 2039/2048, 18 chars emitted, flat ran summary-less
 # through the whole suite). 4096 gives reasoning headroom above terse content,
 # matching the recap call's budget.
-SUMMARY_MAX_TOKENS = 4096
+# Experiment switch: CONTEXT_EVAL_SUMMARY_MAX_TOKENS overrides the cap
+# (e.g. 8192 for the reasoning-separation legs) so cap sensitivity can be
+# measured without code changes; flat/representation import this constant.
+SUMMARY_MAX_TOKENS = int(os.environ.get("CONTEXT_EVAL_SUMMARY_MAX_TOKENS", "4096"))
 
 # Experiment switch: CONTEXT_EVAL_TOPICS_LINES=0 assembles the pre-P1
 # prompts (no inventory instruction) so control/treatment legs can run

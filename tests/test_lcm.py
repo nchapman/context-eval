@@ -300,3 +300,14 @@ class TestTopicsSwitch:
         importlib.reload(lcm_mod)
         assert "TOPICS line" in lcm_mod._D1_PROMPT
         assert "union of the children" in lcm_mod._DN_PROMPT
+
+    def test_summary_max_tokens_env_override(self, monkeypatch):
+        import importlib
+        import context_eval.strategies.lcm as lcm_mod
+
+        monkeypatch.setenv("CONTEXT_EVAL_SUMMARY_MAX_TOKENS", "8192")
+        importlib.reload(lcm_mod)
+        assert lcm_mod.SUMMARY_MAX_TOKENS == 8192
+        monkeypatch.delenv("CONTEXT_EVAL_SUMMARY_MAX_TOKENS")
+        importlib.reload(lcm_mod)
+        assert lcm_mod.SUMMARY_MAX_TOKENS == 4096
