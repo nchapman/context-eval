@@ -21,9 +21,9 @@ echo "skip legs:$SKIP"
 skip () { case " $SKIP " in *" $1 "*) return 0;; *) return 1;; esac; }
 mkdir -p "$OUT"/{swe,locomo,pi,thinking,logs}
 WARP=~/.pi/agent/sessions/--home-nchapman-Code-warp3090--/2026-10-06T00-33-40-625Z_01a10ea1-6510-722c-bc09-fb8681005a1e.jsonl
-ALL7="full-context,sliding-window,context-editing,flat-compact,retrieval,arc,lcm"
+ALL8="full-context,sliding-window,context-editing,flat-compact,retrieval,arc,lcm,representation"
 G1="full-context,sliding-window,context-editing,arc"  # API-light (no compaction LLM)
-G2="flat-compact,retrieval"                           # summarizer + search
+G2="flat-compact,retrieval,representation"            # summarizer + search + incremental memory
 G3="lcm"                                              # heaviest: D1 + consolidation ladder
 
 run3 () {  # run3 <tag> <path> <budgets> <samples> [extra args...]

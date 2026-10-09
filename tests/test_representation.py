@@ -168,3 +168,68 @@ class TestRepresentationMemory:
 
         assert "representation" in REGISTRY
         assert build("representation").name == "representation"
+
+    def test_first_update_empty_leaves_arm_doc_less(self):
+        """flat's historical silent suite failure: if the FIRST update
+        truncates to nothing, the view carries no map at all -- only the
+        tail. The telemetry must flag it."""
+        llm = StubLLM(texts=[""])
+        base_complete = llm.complete
+
+        def complete(messages, **kw):
+            r = base_complete(messages, **kw)
+            r.text = ""
+            r.finish_reason = "length"
+            return r
+
+        llm.complete = complete
+        eng = make_engine(fill(30), 1500, llm)
+        s = RepresentationMemory()
+        drive(eng, s)
+        assert s._memory == ""
+        assert s.stats().empty_summaries == 1
+        view = s.assemble(eng)
+        assert not any("[Agent memory" in m.content for m in view)
+        assert view[0].content == "[Recent context — verbatim]"
+
+    def test_parity_with_flat_fold_sequence(self):
+        """Comparability drift-catcher: on an identical transcript, both
+        arms must fire updates on the same turns with equal per-update
+        input sizes (verified at review time; this pins it)."""
+        from context_eval.strategies.flat_compact import FlatCompact
+
+        texts = ["m: " + "fact. " * 30] * 6
+        flat_llm, rep_llm = StubLLM(texts), StubLLM(texts)
+        msgs = fill(40)
+        eng_f = make_engine(msgs, 4000, flat_llm)
+        eng_r = make_engine(msgs, 4000, rep_llm)
+        f, r = FlatCompact(), RepresentationMemory()
+        for _ in range(len(msgs)):
+            f.on_turn(eng_f)
+            r.on_turn(eng_r)
+        assert flat_llm.calls == rep_llm.calls
+        for pf, pr in zip(flat_llm.prompts, rep_llm.prompts, strict=True):
+            # identical deltas, differing only by the resident-doc framing
+            assert abs(len(pf) - len(pr)) < 400
+
+    def test_prompt_size_bounded_across_updates(self):
+        """With a fixed-size memory, update prompts stay bounded by the
+        trigger window + memory, not by total history length."""
+        from context_eval.budget import Budget
+        from context_eval.store import TranscriptStore
+        from context_eval.strategies.base import Engine
+        from context_eval.tokens import CharEstimator
+
+        llm = StubLLM(texts=["m: " + "fact. " * 20] * 8)  # constant-size memory
+        store = TranscriptStore()
+        eng = Engine(store=store, counter=CharEstimator(),
+                     budget=Budget(max_context_tokens=1500), llm=llm)
+        s = RepresentationMemory()
+        for i in range(120):  # interleave append + on_turn, as the driver does
+            store.append(Role.USER, f"message {i} about topic-{i}: " + "y" * 300)
+            s.on_turn(eng)
+        assert llm.calls >= 3
+        sizes = [len(p) for p in llm.prompts]
+        # every prompt is bounded by (fixed memory + one trigger window);
+        # a fold-over-fold input would grow linearly with history
+        assert max(sizes) < 1.5 * min(sizes)

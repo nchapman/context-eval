@@ -26,6 +26,7 @@ from context_eval.run_eval import build_questions  # noqa: E402
 # - answering: 1 LLM call/question + tool steps (memory arms ~1.5x)
 # - judging:   1 call/question
 # - compaction: flat ~raw/budget calls, lcm ~raw/(0.25*budget)*1.3,
+#               representation ~raw/budget (same cadence as flat),
 #               everything else 0
 CALLS_PER_SEC_PER_WORKER = 0.35  # sequential-in-worker, flash latency
 WORKERS = 3
@@ -39,13 +40,13 @@ CEILINGS = {  # questions per leg, wall-clock minutes per leg
 
 LEGS = {
     "swe": dict(path="data/swe_smoke.jsonl", budgets=(64_000, 128_000), samples=22,
-                strategies=7, needles=4, max_q=0),
+                strategies=8, needles=4, max_q=0),
     "locomo": dict(path="data/locomo.jsonl", budgets=(8_000, 16_000), samples=10,
-                   strategies=7, needles=4, max_q=16),
+                   strategies=8, needles=4, max_q=16),
     "pi": dict(path="data/pi_sessions.jsonl", budgets=(128_000, 256_000), samples=3,
-               strategies=7, needles=4, max_q=0),
+               strategies=8, needles=4, max_q=0),
     "thinking": dict(path="data/thinking_drop.jsonl", budgets=(128_000,), samples=1,
-                     strategies=7, needles=4, max_q=0),
+                     strategies=8, needles=4, max_q=0),
 }
 
 
@@ -63,8 +64,9 @@ def plan(leg: str) -> dict:
         raw_tokens += sum(CharEstimator().count_text(m.content) for m in s.messages)
     runs = cfg["samples"] * cfg["strategies"] * len(cfg["budgets"])
     budget = cfg["budgets"][0]
-    # memory-arm compaction calls, worst budget
-    compaction = raw_tokens / budget + raw_tokens / (0.25 * budget) * 1.3
+    # memory-arm compaction calls, worst budget (flat + lcm + representation
+    # at flat's cadence)
+    compaction = 2 * raw_tokens / budget + raw_tokens / (0.25 * budget) * 1.3
     answering = questions * cfg["strategies"] * 1.5
     judging = questions * cfg["strategies"]
     calls = answering + judging + compaction * 2  # both budgets crudely

@@ -196,3 +196,49 @@ gone" -- Codex teardown).
 **Gap nobody fills cleanly:** no published comparison of drop vs persist vs
 recap (summarize-at-record-time) reasoning policies on real multi-day
 sessions. Our pi corpus + open-loop replay can run exactly that ablation.
+
+## Honcho & incremental representation memory (added Oct 2026)
+
+Honcho v3 (Plastic Labs; plasticlabs.ai, honcho.dev) is out-of-band memory
+infrastructure: messages go to a Storage service; async deriver workers
+(Neuromancer, tiered Gemini/Anthropic) extract conclusions and merge them
+into per-entity *representations* (peers = users/agents/groups/projects);
+agents query `session.context(tokens=N)` (summary + messages + conclusions),
+hybrid BM25+vector search, or the Dialectic chat endpoint at turn time.
+Their thesis ("Memory as Reasoning"): representation maintenance is a
+reasoning task, done incrementally off the critical path — never re-derived
+from the growing transcript.
+
+**Our port (`representation` arm) deliberately excludes** their async
+scheduling, dialectic tiers, dreamer consolidation, and per-entity doc
+partition — deployment machinery, not the mechanism under test. What it
+keeps: one bounded memory doc (target 2048 tok) updated by merging each new
+delta into maintained, sectioned state (facts, entities, open threads with
+status), same trigger/tail/tools/model/accounting as flat-compact.
+
+**Known deviations & confounds (from the pre-flight SME review):**
+- single doc vs per-entity representations — results license claims about
+  "single-doc incremental merge," not about Honcho-the-system
+- no [§id] provenance in memory ("state conclusions, never quote
+  transcripts") — prompt asymmetry beyond the merge rule
+- MEMORY_TARGET_TOKENS=2048 vs flat's emergent ~1.1K summaries: resident
+  size is conflated with the merge rule; attribute via view_tokens
+  telemetry before claiming either
+- corrected framing: flat's per-update input is also bounded (increments
+  only since 52d1156); the isolated variable is update-rule semantics
+  (merge into maintained state vs re-derive summary-of-summary), not input
+  size. Empty-update truncation risk is identical in both arms; what
+  differs structurally is that a truncated update after the first can no
+  longer strip the view of its map
+- the battery's comparison cells: flat P0' (no inventory instruction) and
+  P1' (instructed inventory, failed via truncation) bracket the
+  representation arm, whose inventory is maintained state, not per-fold
+  output
+
+**Why this arm matters:** the P0'/P1' experiments established that (a) the
+true flat-vs-lcm continuity gap at fixed model is 10 pts @16K, and (b)
+instructing fold-based summarizers to carry inventories degrades them
+mechanically (truncation load). Incremental merge is the architecture-level
+alternative — and if it wins, Honcho's docker stack (per-module OpenRouter
+routing is first-class: `DERIVER_MODEL_CONFIG__OVERRIDES__BASE_URL`) is the
+calibration point for what their full machinery adds on top.

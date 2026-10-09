@@ -244,6 +244,14 @@ def test_strategies_hold_budget_under_tool_args_load():
     verbatim = oracle.count_messages([m.to_prompt() for m in store.messages()])
     assert abs(raw - verbatim) < 32  # differs only by the summary marker (~2 msgs)
 
+    # representation's trigger reads the same wire cost as the oracle
+    from context_eval.strategies.representation import RepresentationMemory
+
+    r = RepresentationMemory()
+    r.on_turn(eng)  # llm is None: same no-compaction-but-true-cost path
+    r_raw = r._raw_view_tokens(eng)
+    assert abs(r_raw - verbatim) < 32
+
 
 def test_registry_entries():
     from context_eval.strategies import REGISTRY, build

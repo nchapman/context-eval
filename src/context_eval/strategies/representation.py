@@ -8,14 +8,24 @@ accounting; Honcho's async scheduling, multi-tier dialectic, and dreamer
 consolidation are deployment machinery, not the claim under test
 (differences are noted in docs/lit-review.md).
 
-The structural property under test: each update reads CURRENT MEMORY +
-messages since the last update only -- input size is O(memory + delta),
-independent of history length. The fold-over-fold regime where flat's
-re-derivation truncates (measured 42-100% empty folds at 4096 max_tokens)
-cannot occur here by construction. The inventory of open threads lives
-in the memory as maintained state, not as a per-fold output -- the exact
-capability the P1' prompting experiment showed fold-based summaries
-cannot carry.
+The structural properties under test (as verified against flat's
+increment-only folding, commit 52d1156):
+- update-rule semantics: merge new facts into maintained, sectioned,
+  inventory-bearing state vs re-derive a summary of PREVIOUS SUMMARY +
+  increment. Per-update inputs are bounded in BOTH arms; the compounding
+  difference is what the model is asked to DO with the resident doc.
+- an empty first update leaves the arm doc-less exactly like flat's
+  historical silent failure -- but after any update has landed, a
+  truncated update can no longer strip the view of its map (memory is
+  preserved; only the delta is lost, flagged by empty_summaries, FTS-
+  recoverable). Both arms share this delta-loss-on-empty behavior.
+
+Deliberate deviations (see docs/lit-review.md): single doc vs Honcho's
+per-entity representations; no [§id] provenance in the memory
+("state conclusions, never quote transcripts"); MEMORY_TARGET_TOKENS
+=2048 bounded resident doc is plausibly part of the mechanism but
+confounds resident size with the merge rule -- attribute via the
+per-turn view_tokens telemetry before claiming either.
 
 Anchors:
 - representation vs flat-compact: incremental merge vs summary-of-summary
