@@ -292,6 +292,11 @@ n=88/cell, p≈0.06). What the clean data adds is the *shape* of the
 residual gap: every summarizer miss is a needle lost at a compaction
 event (flat 8, representation 5, lcm 0 across 176 SWE runs) — folds and
 merges drop specifics occasionally; the tree's small calls drop none.
+Trace-derived QA (questions about the session's *own* real facts —
+actual errors, fixes, commands — 88 grounded pairs, gold-token recall)
+finds the same tie on natural information: flat 0.86, lcm 0.85,
+rep 0.82 @128K — real facts are retained about as well as injected
+needles, with no architectural separation at deployment budget.
 Calibration also halved summarizer overhead (flat $0.0065→$0.0031, lcm
 $0.0097→$0.0026/run): the discarded-thinking tax is gone, and the
 hierarchy is now the *cheapest* summarizer per run. What separates the
