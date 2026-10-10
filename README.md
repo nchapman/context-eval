@@ -10,13 +10,16 @@ the same model with the same cost accounting: 600+ runs across LoCoMo
 dialogues, SWE-bench-derived traces, and real multi-day agent sessions up to
 2M tokens. Four findings survive every budget tier we could afford:
 
-1. **On cued recall, every archive-preserving strategy ties — structure
-   buys nothing.** Flat `/compact`, plain retrieval over a verbatim
-   archive, and the LCM hierarchy are statistically indistinguishable at
-   deployment budgets (0.94–0.95 @128K; 1.00/1.00/0.92 @256K), while
-   eviction-only (0.69) and in-place editing (0.75) lose and full-context
-   is infeasible (overflow). Retrieval matches the summarizers at $0
-   compaction cost.
+1. **On cued recall, archive-preserving strategies near-tie — and the
+   clean hierarchy drops nothing.** Flat `/compact`, plain retrieval,
+   and the LCM hierarchy sit within 6 pts at deployment budgets
+   (calibrated: 0.94 / 0.95 / 1.00 @128K), while eviction-only (0.69)
+   and in-place editing (0.75) lose and full-context is infeasible
+   (overflow). Every summarizer miss is a needle lost at a compaction
+   event — folds and merges drop specifics occasionally, the tree's
+   small calls dropped none in 176 runs — and calibration halved
+   summarizer overhead, making the hierarchy the cheapest summarizer
+   per run.
 2. **On uncued inventory recall, architecture separates exactly when
    compaction begins.** With calibrated compaction calls (see 4), the
    hierarchy keeps 99% of the session's topic inventory at both stress
@@ -184,8 +187,10 @@ agent continues from `[summary] + tail`. Repeated triggers re-summarize
 Compaction Theory warns about.
 
 **Isolates:** the baseline every research proposal must beat. It also
-anchors R1 (its QA tie was achieved with tail + archive search even
-when its summaries blanked — see the measurement note) and R2/R3 (its
+anchors R1 (94% @128K clean: its residual misses are all needles lost at
+folds — and its suite-era 0.95 tie was achieved by tail + archive
+search even while its summaries blanked, see the measurement note) and
+R2/R3 (its
 continuity is intact until folding starts — 96% @16K at 1–2 folds,
 53% @8K — and a TOPICS instruction halves it under the shared cap but
 rescues it to 84% under calibrated calls).
@@ -261,25 +266,38 @@ masking, not architectural superiority.
 
 ## §4 Findings
 
-### R1 — On cued recall, archive-preserving strategies tie; structure buys nothing
+### R1 — On cued recall, archive-preserving strategies tie — and the
+clean hierarchy is nominally perfect
 
-| @128K SWE (n=22-25) | acc | acc* | overhead $/run |
+| @128K SWE (n=22/cell) | acc | acc* | overhead $/run |
 |---|---|---|---|
-| flat-compact | **0.95** | **0.95** | $0.0065 |
+| lcm † | **1.00** | **1.00** | $0.0026 |
+| flat-compact † | 0.94 | 0.94 | $0.0031 |
 | retrieval | **0.95** | **0.95** | $0.0000 |
-| lcm | 0.94 | 0.94 | $0.0097 |
+| representation † | 0.97 | 0.97 | $0.0093 |
 | context-editing | 0.75 | 0.66 | $0.0000 |
 | sliding-window | 0.69 | 0.69 | $0.0000 |
 | full-context | 0.81 | 0.58 | — (7/25 overflow) |
 
-At 256K on real agent sessions: flat 1.00, retrieval 1.00, lcm 0.92. When
-the question points at the information (needles, corpus QA), any strategy
-that keeps or can find the verbatim past performs equally — the DAG's
-extra calls buy nothing a flat fold doesn't provide, and a searchable
-archive is worth a summary at zero summarization cost. What separates the
-tiers is what happens to information outside the view: eviction loses it
-(window 0.69), pruning loses reasoning (editing 0.75), and overflow loses
-everything (full-context 0.81→0.58 penalized).
+† re-measured under calibrated compaction calls (zero empties); the
+other arms make no summarization calls, so their suite-era numbers are
+unaffected. At 64K the same ordering: lcm 1.00, rep 0.98, flat 0.97. At
+256K on real agent sessions (flat 0.92, lcm 1.00, rep 1.00 †): everyone
+wins. On real pi sessions the three summarizers all sit at 1.00 except
+flat's 0.92 @256K.
+
+The old tie claim survives in weakened form: differences among
+archive-preservers are ≤6 pts and borderline (flat 0.94 vs lcm 1.00 at
+n=88/cell, p≈0.06). What the clean data adds is the *shape* of the
+residual gap: every summarizer miss is a needle lost at a compaction
+event (flat 8, representation 5, lcm 0 across 176 SWE runs) — folds and
+merges drop specifics occasionally; the tree's small calls drop none.
+Calibration also halved summarizer overhead (flat $0.0065→$0.0031, lcm
+$0.0097→$0.0026/run): the discarded-thinking tax is gone, and the
+hierarchy is now the *cheapest* summarizer per run. What separates the
+tiers is unchanged: eviction loses information (window 0.69), pruning
+loses reasoning (editing 0.75), and overflow loses everything
+(full-context 0.81→0.58 penalized).
 
 ### R2 — On uncued recall, architecture separates exactly when compaction begins
 
@@ -461,7 +479,8 @@ count them will misattribute everything downstream.
 Priced recipe, current evidence:
 
 1. **Verbatim tail + searchable archive is the floor, not the strategy.**
-   It ties full summarization on QA at $0 compaction cost (R1).
+   It near-ties the summarizers on cued recall at $0 compaction cost (R1) —
+   and beats them on cost; what it cannot do is R2's uncued inventory.
 2. **Calibrate every utility call: reasoning-off, stated budget,
    require-content retry.** A shared completion cap is a silent killer —
    measured 42–100% empty folds, invisible without telemetry, and bigger

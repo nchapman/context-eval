@@ -337,8 +337,13 @@ def plot_pareto(cells: list[Cell], path: str | Path) -> None:
     fig, ax = plt.subplots(figsize=(7, 5))
     for c in cells:
         x = c.pass_tok_per_q / 1000
+        # clamp: a Wilson bound can land a float's-width outside the
+        # point estimate (e.g. hi 0.99999 vs acc 1.0) and errorbar
+        # rejects negative extents
         ax.errorbar(
-            x, c.acc, yerr=[[c.acc - c.acc_lo], [c.acc_hi - c.acc]], fmt="o", capsize=3
+            x, c.acc,
+            yerr=[[max(0.0, c.acc - c.acc_lo)], [max(0.0, c.acc_hi - c.acc)]],
+            fmt="o", capsize=3
         )
         ax.annotate(c.label, (x, c.acc), textcoords="offset points", xytext=(6, 4), fontsize=8)
     ax.set_xlabel("answering prompt tokens per question (thousands)")
