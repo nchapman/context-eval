@@ -216,9 +216,11 @@ Every message keeps an anchor (`§m000123`); the view shows citations with
 snippets; `history_recall(id)` fetches full originals deterministically
 (Cognition's blog design).
 **Isolates:** whether *deterministic* recall tools get used. They don't:
-**0 tool calls in 511 runs** (R5). Discoverability is the boundary — a
-tool the model doesn't spontaneously call does not exist, no matter how
-clean its contract.
+**0 tool calls in 511 suite runs** — but under forced occlusion the
+tool fires freely (R5): the suite's silence was rational no-need, not
+discoverability. What remains true: when the view reads as complete,
+the model won't go looking — and can't tell a truncated preview from
+a full one.
 
 ### lcm — the hierarchical challenger
 Segments summarize into leaf nodes (D1); sibling summaries consolidate into
@@ -412,17 +414,37 @@ fold; a merge arm loses one bounded delta. Catastrophic vs graceful under
 identical external physics is a strategy property — but under calibration
 neither shape fires, which is the point.
 
-### R5 — Models search; they don't recall
+### R5 — Models recall when occlusion is visible; the 0/511 was mostly
+rational no-need
 
-Across 511 suite runs, the models spontaneously issue archive search
+Across 511 suite runs, models spontaneously issue archive search
 (flat: ~5-8 `history_search` calls/run at stress; retrieval's whole
-design) but **never once** call ARC's deterministic `history_recall`
-(0/511) — not fixable by tool description (documented as a
-model-behavior boundary in docs/lit-review.md). Tool-mediated recovery
-has a discoverability→usage→recovery chain, and only the first link
-belongs to the tool designer. Strategies that inject their map into the
-don't depend on it; strategies that gate recovery behind targeted tool
-calls surrender it.
+design) but **never once** called ARC's deterministic `history_recall`.
+We initially read that as a discoverability boundary. It isn't. With
+needles deliberately planted beyond citation previews (mid-observation,
+outside head/tail excerpts), unprompted models call `history_recall`
+at healthy rates — and an explicit system-prompt instruction changes
+nothing:
+
+```
+hidden needles (mid-placement), unprompted     acc     calls/needle
+8K   (view ≈ wall of citations)               50%       0.75
+16K  (partial citation coverage)             80%       0.52
+64K  (mostly verbatim)                       89%       0.18
+8K + explicit "call history_recall" line      46%       (no change)
+```
+
+Recovery works when it fires: needle accuracy is 83% among answers
+with recall calls vs 44% without. Usage tracks actual occlusion almost
+rationally — the suite's 0/511 happened because at deployment budgets
+randomly-placed needles are rarely *truly* hidden (the verbatim window
+and previews cover them), so there was nothing to recall. The residual
+boundary is the trigger problem: some hidden needles still draw
+"I don't have that information" instead of a fetch (a truncated preview
+emits no error signal the model can notice). Strategies that inject
+their map don't depend on the model noticing occlusion; strategies that
+gate recovery behind tool calls work — but only as well as the model's
+sense that something is missing.
 
 ### R6 — Who fails honestly
 
@@ -493,9 +515,12 @@ Priced recipe, current evidence:
    scales to the cap). `reasoning: {enabled: false}` + a word budget
    stated in the prompt + an empty-at-length retry took 60/60 grid runs
    to zero blanks at ~¼ of the previous thinking-token bill (R4, R8).
-3. **Don't rely on the model calling memory tools.** 0/511 (R5). Inject
-   the map into the view; search on the model's own initiative happens,
-   targeted recall doesn't.
+3. **Don't rely on the model calling memory tools at deployment
+   budgets.** Tools fire when occlusion is visible (citation walls:
+   0.75 calls/hidden-needle @8K, 83% recovery when used) and stay silent
+   when the view reads as complete (R5) — and instruction doesn't change
+   either regime. Inject the map into the view; treat tools as the
+   stress-budget backstop, not the mechanism.
 4. **If continuity matters at stress budgets, structure the map as a
    hierarchy of small summaries — and either way, instruct the
    inventory.** Uninstructed, lcm holds 99% uncued inventory at both
