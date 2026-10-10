@@ -25,13 +25,14 @@ dialogues, SWE-bench-derived traces, and real multi-day agent sessions up to
    and incremental-merge memory erodes to 39–68% through its own churn
    (9–10 whole-memory regenerations per run). Cued recall saturates
    everywhere: needles 100% on every arm, corpus QA parity.
-3. **Regenerated maps cannot be instructed into carrying state.** Adding
-   a "keep a topic inventory" instruction to fold-based summarizers
-   *degrades* them (30%/19% recall, vs 62%/34% uninstructed, under the
-   shared-cap regime): instruction load increases truncation, which
-   blanks the map. Under calibrated calls the uninstructed gap persists
-   structurally (hierarchy 99% vs fold 53% @8K) — inventory is
-   architecture, not wording.
+3. **Instruction and call physics are entangled.** A "keep a topic
+   inventory" instruction *degraded* fold-based summarizers under the
+   shared cap (30%/19% vs 62%/34% — instruction load feeds the
+   truncation that blanks the map) and *rescued* them under calibrated
+   calls (flat @8K: 53%→84%, abstention 20%→0%). The same prompt is
+   poison or the cheapest continuity win in the study depending entirely
+   on the utility call's physics. Hierarchy still holds 99–100% with no
+   instruction at all.
 4. **Completion truncation is the shared failure physics — and
    calibration, not bigger caps, is the fix.** On reasoning models,
    29–61% of summarization calls return empty when reasoning shares the
@@ -184,9 +185,10 @@ Compaction Theory warns about.
 
 **Isolates:** the baseline every research proposal must beat. It also
 anchors R1 (its QA tie was achieved with tail + archive search even
-when its summaries blanked — see the measurement note) and R2 (its
+when its summaries blanked — see the measurement note) and R2/R3 (its
 continuity is intact until folding starts — 96% @16K at 1–2 folds,
-53% @8K — and the TOPICS instruction halves it, R3).
+53% @8K — and a TOPICS instruction halves it under the shared cap but
+rescues it to 84% under calibrated calls).
 
 ```
 turn n:   [ ────────── tail ────────── ]          view grows freely
@@ -316,17 +318,16 @@ vs 17–25K (lcm, ~5 D1+DN calls) vs 33–38K (representation, ~9 merges).
 The hierarchy's continuity win costs ≈1.3× flat's compaction overhead —
 not the 3× premium the confounded regime suggested.
 
-### R3 — Regenerated maps can't be instructed into carrying state
+### R3 — Instruction and call physics are entangled: the same prompt is poison on a shared-cap call and rescue on a calibrated one
 
-If the R2 gap were a prompting deficiency, an explicit instruction should
-close it. Adding "end every summary with a TOPICS line enumerating named
-projects and their status" to both fold-based summarizers (same model,
-n=10/cell) did the opposite — under the then-current 4096 shared cap,
-where the instruction *loaded* the call (more target, more reasoning) and
-truncation answered:
+If the R2 gap were a prompting deficiency, an explicit instruction —
+"end every summary with a TOPICS line enumerating named projects and
+their status" — should close it. Under the shared-cap regime it did the
+opposite: the instruction *loads* the call (more target, more reasoning),
+truncation answers, and the map blanks:
 
 ```
-LoCoMo continuity recall (recall / % empty folds) — shared-cap regime
+LoCoMo continuity recall (recall / % empty folds) — SHARED-CAP regime
                       no instruction     + TOPICS instruction
 flat @8K   34%              │  19%   ← instruction made it worse
 lcm  @8K   12%              │   0%
@@ -334,15 +335,29 @@ flat @16K  62%              │  30%   ← 100% of folds truncated empty
 lcm  @16K  52%              │  15%
 ```
 
-Those magnitudes are regime-bound (see the measurement note); the
-mechanism is not: on reasoning models, prompt content and
-completion-cap physics are entangled, and you cannot buy state with
-words when the words are what gets truncated. The structural half
-survives calibration untouched: with compaction calls now reasoning-off
-and budget-honoring, the no-instruction gap persists (flat 53% vs lcm
-99% @8K, R2) — inventory is architecture, not wording. Whether a TOPICS
-instruction *helps* flat once truncation no longer binds is measured in
-the calibrated re-run below.
+Re-run under calibrated calls (reasoning-off, stated budget, zero
+empties), the same instruction flips sign:
+
+```
+LoCoMo continuity recall (recall / abstention) — CALIBRATED regime
+                      no instruction     + TOPICS instruction
+flat @8K   53% / 20%        84% / 0%   ← +31 pts, abstention gone
+flat @16K  96% / 0%         92% / 0%   ← two runs lost topics at a fold;
+                                           within the fold-loss distribution
+lcm  @8K   99% / 0%        100% / 0%
+lcm  @16K  99% / 0%        100% / 0%
+```
+
+Needles stay 100% and corpus QA stays in the parity band (23–30%) —
+the instruction costs nothing else. So the finding is not "state isn't
+promptable" and not "architecture doesn't matter" — it's that the two
+interact: **on a length-starved reasoning call, prompt content is a
+liability; on a calibrated utility call, an inventory instruction is the
+cheapest continuity win in the study** (+31 pts for flat at stress, one
+prompt line). The architecture gap narrows but survives: hierarchy holds
+99% at both budgets with *no* instruction at all, while instructed flat
+still folds its way to 84% — structure carries state natively, wording
+carries it only as long as every compaction call lands.
 
 ### R4 — Shared-cap truncation physics is real; calibration, not bigger caps, is the fix
 
@@ -458,14 +473,13 @@ Priced recipe, current evidence:
    the map into the view; search on the model's own initiative happens,
    targeted recall doesn't.
 4. **If continuity matters at stress budgets, structure the map as a
-   hierarchy of small summaries.** lcm holds 99% uncued inventory at
-   both budgets vs flat's 53% @8K (folding drops topics), at ≈1.3× flat's
-   compaction overhead — each call is small, lands full-fat, and nothing
-   re-derives the whole map (R2). Maintained-memory variants pay their
-   own cost: merge-churn regenerates the whole doc 9–10×/run and erodes
-   inventory. Prompting your summarizer to "keep a topic list" made it
-   worse under truncation physics (R3) — the fix is architecture, not
-   wording.
+   hierarchy of small summaries — and either way, instruct the
+   inventory.** Uninstructed, lcm holds 99% uncued inventory at both
+   budgets vs flat's 53% @8K (folding drops topics), at ≈1.3× flat's
+   compaction overhead. One TOPICS prompt line buys flat +31 pts at
+   stress once its calls are calibrated (53%→84%, R3) — free insurance
+   even under hierarchy. Maintained-memory variants pay their own cost:
+   merge-churn regenerates the whole doc 9–10×/run and erodes inventory.
 5. **Budget for degradation.** Choose the strategy whose *failure* you can
    afford: lost-delta (representation) vs wiped-map (flat) vs
    lost-everything (window) — and remember calibration (R4) prevents the
