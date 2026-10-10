@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from context_eval.provider import ToolSchema
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
-from context_eval.strategies.lcm import _D1_PROMPT, SUMMARY_MAX_TOKENS, _FtsIndex
+from context_eval.strategies.lcm import _D1_PROMPT, _FtsIndex, summary_call_kwargs
 from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
 from context_eval.types import PromptMessage, Role, Usage
 
@@ -102,7 +102,7 @@ class FlatCompact(Strategy):
         prompt = _D1_PROMPT.format(segment="\n".join(segment_parts))
 
         completion = engine.llm.complete(
-            [{"role": "user", "content": prompt}], max_tokens=SUMMARY_MAX_TOKENS
+            [{"role": "user", "content": prompt}], **summary_call_kwargs()
         )
         if completion.usage:
             self._overhead.add(completion.usage)

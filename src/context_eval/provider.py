@@ -182,7 +182,14 @@ class OpenRouterClient:
         max_tokens: int = 1024,
         temperature: float = 0.0,
         reasoning: Mapping[str, Any] | None = None,
+        require_content: bool = False,
     ) -> Completion:
+        """require_content=True treats an empty-content completion truncated
+        at the cap (finish=length) as retryable: reasoning models can burn
+        the entire max_tokens thinking and emit nothing (measured: 8192
+        reasoning tokens, zero content). Up to two escalations double the
+        cap; usage accumulates across attempts because every attempt bills
+        (usage.llm_calls exposes the escalation count)."""
         body: dict[str, Any] = {
             "model": self.model,
             "messages": list(messages),
@@ -206,11 +213,15 @@ class OpenRouterClient:
         last_error: Exception | None = None
         attempts = 7  # shared-pool rate limits can persist a while
         ladder_start = time.monotonic()
+        billed = Usage()
+        escalations = 0
+        result: Completion | None = None
         for attempt in range(attempts):
             try:
                 if self._stream:
-                    return self._post_stream(body)
-                return self._post(body)
+                    result = self._post_stream(body)
+                else:
+                    result = self._post(body)
             except _TransientProviderError as exc:
                 last_error = exc
                 # Total ladder budget: 7 x (600s stream deadline + backoff)
@@ -223,6 +234,30 @@ class OpenRouterClient:
                 if attempt < attempts - 1:
                     # Exponential with jitter, capped: 1s..~45s
                     time.sleep(min(2.0**attempt, 45.0) * (0.5 + random.random()))
+                continue
+            billed.add(result.usage)
+            if (
+                require_content
+                and not result.text.strip()
+                and result.finish_reason == "length"
+            ):
+                escalations += 1
+                if escalations <= 2:
+                    body["max_tokens"] = min(body["max_tokens"] * 2, 32_768)
+                    last_error = _TransientProviderError(
+                        f"empty content at cap; escalating max_tokens to "
+                        f"{body['max_tokens']}"
+                    )
+                    continue
+            return Completion(
+                text=result.text,
+                tool_calls=result.tool_calls,
+                usage=billed,
+                finish_reason=result.finish_reason,
+                model=result.model,
+                provider=result.provider,
+                reasoning=result.reasoning,
+            )
         raise ProviderError(f"transient failures exhausted: {last_error}")
 
     def _request_args(self, body: dict[str, Any]) -> dict[str, Any]:

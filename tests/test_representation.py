@@ -16,11 +16,15 @@ class StubLLM:
     def __init__(self, texts=None):
         self.calls = 0
         self.prompts: list[str] = []
+        self.kwargs: list[dict] = []
         self._texts = texts or ["memory: pinned pytest 8.2.1; open flaky parser test"]
 
-    def complete(self, messages, *, tools=None, max_tokens=1024, temperature=0.0):
+    def complete(self, messages, *, tools=None, max_tokens=1024,
+                 temperature=0.0, reasoning=None, require_content=False):
         self.calls += 1
         self.prompts.append(messages[-1]["content"] if messages else "")
+        self.kwargs.append({"reasoning": reasoning, "max_tokens": max_tokens,
+                            "require_content": require_content})
         text = self._texts[min(self.calls - 1, len(self._texts) - 1)]
 
         class R:
@@ -281,3 +285,17 @@ class TestRepresentationMemory:
         # every prompt is bounded by (fixed memory + one trigger window);
         # a fold-over-fold input would grow linearly with history
         assert max(sizes) < 1.5 * min(sizes)
+
+
+class TestCalibratedCall:
+    def test_compaction_calls_use_calibrated_kwargs(self):
+        llm = StubLLM()
+        eng = make_engine(fill(30), 1500, llm)
+        s = RepresentationMemory()
+        drive(eng, s)
+        assert llm.calls == 1
+        assert llm.kwargs[0]["reasoning"] == {"enabled": False}
+        assert llm.kwargs[0]["require_content"] is True
+        # the memory arm states its own budget (resident token target),
+        # not the D1 word budget
+        assert "under" in llm.prompts[0] and "tokens" in llm.prompts[0]

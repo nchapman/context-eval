@@ -376,9 +376,45 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results", nargs="+", help="RunResult JSONL file(s)")
     parser.add_argument("--out", type=Path, default=Path("results/report.md"))
+    parser.add_argument(
+        "--allow-invalid", action="store_true",
+        help="render despite blank-compaction runs (results are suspect)",
+    )
     args = parser.parse_args(argv)
 
     runs = load_runs(*args.results)
+
+    # Enforcing gate: a run with blank compactions ran without working
+    # summaries, and every downstream number for that arm is suspect. This
+    # is the invariant that makes empty-summary failure visible -- it must
+    # refuse, not warn, because a warning rendered as a clean table is how
+    # 511 suite runs shipped with a half-blank flat arm (see README
+    # methodology). Escalations (usage.llm_calls > 1) are fine; terminal
+    # empties are not.
+    blanks = [
+        r for r in runs
+        if (r.get("empty_summaries") or 0) > 0 and not r.get("error")
+    ]
+    if blanks and not args.allow_invalid:
+        by_cell: dict[tuple, int] = {}
+        for r in blanks:
+            k = (r["strategy"], r["budget_tokens"])
+            by_cell[k] = by_cell.get(k, 0) + r.get("empty_summaries", 0)
+        detail = ", ".join(f"{s}@{b // 1000}K:{n}" for (s, b), n in sorted(by_cell.items()))
+        print(
+            f"REFUSING to render: {len(blanks)} runs compacted to nothing "
+            f"({detail}). These arms ran with blank summaries/merges; their "
+            f"cells are measurement artifacts, not results. Fix the call "
+            f"(reasoning off / require_content) and re-run, or pass "
+            f"--allow-invalid to render anyway (output is stamped)."
+        )
+        return 2
+    if blanks:
+        print(
+            f"INVALID RESULTS: {len(blanks)} runs contain blank compactions; "
+            f"the affected cells below are artifacts.\n"
+        )
+
     cells = aggregate(runs)
     curves = depth_curves(runs)
 

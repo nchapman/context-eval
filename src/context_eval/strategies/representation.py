@@ -37,7 +37,7 @@ from __future__ import annotations
 from context_eval.provider import ToolSchema
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
 from context_eval.strategies.flat_compact import FLAT_TAU, KEEP_TAIL_FRAC
-from context_eval.strategies.lcm import SUMMARY_MAX_TOKENS, _FtsIndex
+from context_eval.strategies.lcm import _FtsIndex, summary_call_kwargs
 from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
 from context_eval.types import PromptMessage, Role, Usage
 
@@ -50,7 +50,7 @@ MEMORY_TARGET_TOKENS = 2048  # resident cap the update prompt enforces
 # did (pilot: completion=4096/reasoning=4096, zero content emitted).
 UPDATE_DELTA_TOKENS = 2048
 
-_MEMORY_PROMPT = """You maintain the long-term memory of an agent's coding session.
+_MEMORY_PROMPT = """You maintain the long-term memory of an agent session (coding, chat, or mixed).
 CURRENT MEMORY is below, then NEW MESSAGES since the last update.
 Emit the complete updated memory, merged:
 - preserve every still-relevant fact and every specific value (ids,
@@ -144,7 +144,7 @@ class RepresentationMemory(Strategy):
             delta=delta,
         )
         completion = engine.llm.complete(
-            [{"role": "user", "content": prompt}], max_tokens=SUMMARY_MAX_TOKENS
+            [{"role": "user", "content": prompt}], **summary_call_kwargs()
         )
         if completion.usage:
             self._overhead.add(completion.usage)

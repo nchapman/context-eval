@@ -14,7 +14,8 @@ class ScriptedLLM:
         self.fail = fail
         self.calls = []
 
-    def complete(self, messages, *, tools=None, max_tokens=1024, temperature=0.0):
+    def complete(self, messages, *, tools=None, max_tokens=1024,
+                 temperature=0.0, reasoning=None, require_content=False):
         from context_eval.provider import Completion
 
         self.calls.append(messages[0]["content"])

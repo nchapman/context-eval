@@ -51,17 +51,43 @@ SIBLINGS_TO_MERGE = 4
 # measured without code changes; flat/representation import this constant.
 SUMMARY_MAX_TOKENS = int(os.environ.get("CONTEXT_EVAL_SUMMARY_MAX_TOKENS", "4096"))
 
+# Calibrated compaction-call operating point (results/smoke): reasoning
+# disabled + word budget stated in the prompt + matched backstop cap.
+# 8/8 cells complete, budget-honoring, 100% of available inventory markers
+# retained; reasoning-enabled blanks even at 8192 (appetite, not cap size)
+# and bills 1.1K-8.2K discarded thinking tokens per call.
+# CONTEXT_EVAL_SUMMARIZER_REASONING=on selects the reasoning-enabled
+# ablation path (needs require_content; still blanks on the tail).
+SUMMARIZER_REASONING_OFF = (
+    os.environ.get("CONTEXT_EVAL_SUMMARIZER_REASONING", "off") != "on"
+)
+SUMMARY_WORDS = 150
+SUMMARY_BACKSTOP_TOKENS = 1024
+
+
+def summary_call_kwargs() -> dict:
+    """Call parameters shared by every compaction call site."""
+    if SUMMARIZER_REASONING_OFF:
+        return {
+            "reasoning": {"enabled": False},
+            "max_tokens": SUMMARY_BACKSTOP_TOKENS,
+            "require_content": True,
+        }
+    return {"max_tokens": SUMMARY_MAX_TOKENS, "require_content": True}
+
 # Experiment switch: CONTEXT_EVAL_TOPICS_LINES=0 assembles the pre-P1
 # prompts (no inventory instruction) so control/treatment legs can run
 # against the same code with only the prompt differing.
 _TOPICS_IN_PROMPTS = os.environ.get("CONTEXT_EVAL_TOPICS_LINES", "1") != "0"
 
 _D1_PROMPT = (
-    """Summarize this segment of an agent's coding session for future reference.
+    f"""Summarize this segment of an agent session (coding, chat, or mixed) for
+future reference.
 Preserve exactly: the task/goal, key decisions and why, file paths touched,
 commands run and their outcomes, errors and resolutions, and every specific
 value (ids, tokens, numbers, names, versions).
-Mark where each fact came from as [§<id>]. Be terse.
+Mark where each fact came from as [§<id>]. Keep the whole summary under
+~{SUMMARY_WORDS} words, including any final topic-inventory line.
 """
     + (
         "End with a TOPICS line: every named project, topic, codename, or\n"
@@ -77,7 +103,7 @@ _DN_PROMPT = (
     """These are summaries of consecutive earlier segments of one agent session.
 Consolidate them into one higher-level summary. Keep every specific value
 (ids, tokens, numbers, names, versions) and their [§<id>] references; drop
-narrative. Be terse.
+narrative. Keep the summary under ~150 words.
 """
     + (
         "Your TOPICS line is the union of the children's TOPICS lines: deduplicate\n"
@@ -191,7 +217,7 @@ class LCMDagger(Strategy):
         try:
             completion = engine.llm.complete(
                 [{"role": "user", "content": _D1_PROMPT.format(segment=segment)}],
-                max_tokens=SUMMARY_MAX_TOKENS,
+                **summary_call_kwargs(),
             )
         except Exception:
             return None
@@ -231,7 +257,7 @@ class LCMDagger(Strategy):
         try:
             completion = engine.llm.complete(
                 [{"role": "user", "content": _DN_PROMPT.format(summaries=summaries)}],
-                max_tokens=SUMMARY_MAX_TOKENS,
+                **summary_call_kwargs(),
             )
         except Exception:
             return None

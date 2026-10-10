@@ -507,3 +507,54 @@ class TestProviderResolution:
             http_client=_client(lambda r: httpx.Response(200, json=ok_response())),
         )
         assert client._provider_only == ("baidu/fp8",)
+
+
+class TestRequireContent:
+    @staticmethod
+    def _client_with(responses):
+        seq = iter(responses)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            r = next(seq)
+            r = r.copy()
+            r["model"] = body.get("model", "m")
+            return httpx.Response(200, json=r)
+
+        return OpenRouterClient(model="m", api_key="k", stream=False,
+                                http_client=_client(handler))
+
+    @staticmethod
+    def _resp(text, finish="stop", ptok=10, ctok=5):
+        return {"choices": [{"message": {"content": text},
+                             "finish_reason": finish}],
+                "usage": {"prompt_tokens": ptok, "completion_tokens": ctok}}
+
+    def test_empty_at_length_escalates_until_content(self):
+        client = self._client_with([
+            self._resp("", finish="length", ctok=1024),
+            self._resp("real summary", ctok=200),
+        ])
+        c = client.complete([{"role": "user", "content": "s"}],
+                            max_tokens=1024, require_content=True)
+        assert c.text == "real summary"
+        assert c.usage.llm_calls == 2      # escalation visible in telemetry
+        assert c.usage.completion_tokens == 1224  # both attempts billed
+
+    def test_gives_up_after_two_escalations_returning_last(self):
+        client = self._client_with([
+            self._resp("", finish="length", ctok=1024),
+            self._resp("", finish="length", ctok=2048),
+            self._resp("", finish="length", ctok=4096),
+        ])
+        c = client.complete([{"role": "user", "content": "s"}],
+                            max_tokens=1024, require_content=True)
+        assert c.text == ""
+        assert c.finish_reason == "length"
+        assert c.usage.llm_calls == 3
+
+    def test_empty_at_stop_is_returned_without_escalation(self):
+        client = self._client_with([self._resp("", finish="stop")])
+        c = client.complete([{"role": "user", "content": "s"}],
+                            max_tokens=1024, require_content=True)
+        assert c.usage.llm_calls == 1  # only length-truncation escalates

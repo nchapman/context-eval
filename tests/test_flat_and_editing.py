@@ -16,7 +16,8 @@ class StubLLM:
         self.calls = 0
         self.prompts: list[str] = []
 
-    def complete(self, messages, *, tools=None, max_tokens=1024, temperature=0.0):
+    def complete(self, messages, *, tools=None, max_tokens=1024,
+                 temperature=0.0, reasoning=None, require_content=False):
         self.calls += 1
         self.prompts.append(messages[-1]["content"] if messages else "")
 
