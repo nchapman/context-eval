@@ -113,6 +113,16 @@ def score_question(question: Question, prediction: str) -> Score:
         )
     if question.kind == "trace_qa":
         return Score(trace_recall_score(prediction, question.answer), "trace_recall")
+    if question.kind == "currency":
+        from context_eval.long_horizon import score_currency
+
+        acc, _stale = score_currency(question, prediction)
+        return Score(acc, "currency_acc")
+    if question.kind == "next_step":
+        return Score(
+            trace_recall_score(prediction, str(question.meta.get("action", ""))),
+            "next_step_recall",
+        )
     if question.kind == "continuity":
         terms = list(question.meta.get("terms", []))
         distractors = list(question.meta.get("distractors", []))

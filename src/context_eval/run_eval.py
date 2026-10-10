@@ -51,6 +51,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         default="random",
                         help="mid: plant needles outside head/tail citation "
                              "previews (recall-tool recovery required)")
+    parser.add_argument("--probes", default="",
+                        help="long-horizon probes: comma list from "
+                             "currency,next_step (currency reuses the seeded "
+                             "continuity topics)")
     parser.add_argument("--recall-instruct", action="store_true",
                         help="append an explicit §-citation recall instruction "
                              "to the system prompt (ARC discoverability test)")
@@ -60,13 +64,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def build_questions(
     sample, needles: int, seed: int, max_q: int, skip_locomo: bool, topics: int = 0,
     trace_qa: list | None = None, needle_position: str = "random",
+    probes: str = "",
 ):
     injected, questions = inject_needles(
         sample, n=needles, seed=seed, position=needle_position
     )
+    probe_list = [p.strip() for p in probes.split(",") if p.strip()]
+    seeded_topics: list[str] = []
     rng = random.Random(seed ^ 0x5EED)
     if topics:
         injected, seeded, distractors = inject_topics(injected, topics, rng)
+        seeded_topics = list(seeded)
         if seeded:
             questions.append(
                 Question(
@@ -77,6 +85,16 @@ def build_questions(
                     meta={"terms": seeded, "distractors": distractors},
                 )
             )
+    if "currency" in probe_list and seeded_topics:
+        from context_eval.long_horizon import inject_currency
+
+        injected, currency_qs = inject_currency(injected, seeded_topics, seed)
+        questions += currency_qs
+    if "next_step" in probe_list:
+        from context_eval.long_horizon import inject_next_step
+
+        injected, next_q = inject_next_step(injected, seed)
+        questions.append(next_q)
     if not skip_locomo and sample.meta.get("qa"):
         questions += [
             Question(
@@ -99,9 +117,10 @@ def build_questions(
         )
     if max_q and len(questions) > max_q:
         rng = random.Random(seed)
-        # Cap the QA pool; keep every needle (depth curves) and the
-        # continuity probe (it is one question and never droppable).
-        keepers = [q for q in questions if q.kind in ("needle", "continuity")]
+        # Cap the QA pool; keep every needle (depth curves), the
+        # continuity probe, and the long-horizon probes (never droppable).
+        keep_kinds = ("needle", "continuity", "currency", "next_step")
+        keepers = [q for q in questions if q.kind in keep_kinds]
         other = [q for q in questions if q.kind not in ("needle", "continuity")]
         keep = max(0, max_q - len(keepers))
         if len(other) > keep:
@@ -149,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
             injected, questions = build_questions(
                 sample, args.needles, args.seed, args.max_questions, args.skip_locomo_qa,
                 topics=args.topics, trace_qa=trace_qa_map.get(sample.sample_id),
-                needle_position=args.needle_position,
+                needle_position=args.needle_position, probes=args.probes,
             )
             for name in strategy_names:
                 for budget in budgets:

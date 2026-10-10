@@ -2,6 +2,7 @@
 
 from context_eval.strategies.arc import ARCCitations
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
+from context_eval.strategies.conclusions import ConclusionsMemory
 from context_eval.strategies.context_editing import ContextEditing
 from context_eval.strategies.flat_compact import FlatCompact
 from context_eval.strategies.full_context import FullContext
@@ -19,6 +20,7 @@ REGISTRY = {
     "arc": ARCCitations,
     "lcm": LCMDagger,
     "representation": RepresentationMemory,
+    "conclusions": ConclusionsMemory,
 }
 
 
