@@ -8,6 +8,9 @@ from context_eval.report import (
     render_markdown,
     wilson_interval,
 )
+from context_eval.report import (
+    main as report_main,
+)
 
 
 def make_run(strategy, sample, budget, scores, overflowed=False, depth_base=0, extra_answers=None):
@@ -192,3 +195,40 @@ class TestMarkdown:
         assert "| lcm@16k |" in md
         assert "Needle accuracy by depth" in md
         assert "0-25%" in md
+
+
+class TestBlankCompactionGate:
+    @staticmethod
+    def _run(tmp_path, strategy="flat-compact", empty=0, **over):
+        path = tmp_path / "r.jsonl"
+        path.write_text(json.dumps(make_run(strategy, "s", 16000, [1])) + "\n")
+        rec = json.loads(path.read_text())
+        rec["empty_summaries"] = empty
+        rec["compactions"] = 1
+        rec["error"] = over.get("error")
+        path.write_text(json.dumps(rec) + "\n")
+        return str(path)
+
+    def test_refuses_blank_compaction_cell(self, tmp_path, capsys):
+        path = self._run(tmp_path, empty=3)
+        rc = report_main([path, "--out", str(tmp_path / "o.md")])
+        assert rc == 2
+        assert "REFUSING" in capsys.readouterr().out
+
+    def test_allow_invalid_renders_with_stamp(self, tmp_path, capsys):
+        path = self._run(tmp_path, empty=3)
+        rc = report_main([path, "--out", str(tmp_path / "o.md"), "--allow-invalid"])
+        assert rc == 0
+        assert "INVALID RESULTS" in capsys.readouterr().out
+
+    def test_clean_cell_renders_without_gate(self, tmp_path, capsys):
+        path = self._run(tmp_path)
+        rc = report_main([path, "--out", str(tmp_path / "o.md")])
+        assert rc == 0
+        assert "REFUSING" not in capsys.readouterr().out
+
+    def test_errored_run_with_empties_does_not_refuse(self, tmp_path, capsys):
+        path = self._run(tmp_path, empty=3, error="boom")
+        rc = report_main([path, "--out", str(tmp_path / "o.md")])
+        assert rc == 0
+        assert "REFUSING" not in capsys.readouterr().out

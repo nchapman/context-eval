@@ -1,7 +1,7 @@
 from context_eval.budget import Budget
 from context_eval.store import TranscriptStore
 from context_eval.strategies.base import Engine
-from context_eval.strategies.lcm import LCMDagger
+from context_eval.strategies.lcm import LCMDagger, summary_call_kwargs
 from context_eval.tokens import CachedCounter, CharEstimator
 from context_eval.types import Role, Usage
 
@@ -13,12 +13,15 @@ class ScriptedLLM:
         self.texts = list(texts or [])
         self.fail = fail
         self.calls = []
+        self.call_kwargs: list[dict] = []
 
     def complete(self, messages, *, tools=None, max_tokens=1024,
                  temperature=0.0, reasoning=None, require_content=False):
         from context_eval.provider import Completion
 
         self.calls.append(messages[0]["content"])
+        self.call_kwargs.append({"reasoning": reasoning,
+                                 "require_content": require_content})
         if self.fail:
             raise RuntimeError("summarizer unavailable")
         if not self.texts:
@@ -313,3 +316,40 @@ class TestTopicsSwitch:
         monkeypatch.delenv("CONTEXT_EVAL_SUMMARY_MAX_TOKENS")
         importlib.reload(lcm_mod)
         assert lcm_mod.SUMMARY_MAX_TOKENS == 4096
+
+
+class TestCalibratedCall:
+    def test_d1_and_dn_use_calibrated_kwargs(self):
+        llm = ScriptedLLM(texts=[f"summary {i}" for i in range(12)])
+        store = TranscriptStore()
+        fill_turns(store, 60, body="x" * 60)
+        eng = make_engine(store, 1_500, llm)
+        s = LCMDagger()
+        for _ in range(len(store.messages())):
+            s.on_turn(eng)
+        assert len(llm.calls) >= 2
+        assert all(k["reasoning"] == {"enabled": False} for k in llm.call_kwargs)
+        assert all(k["require_content"] for k in llm.call_kwargs)
+
+
+class TestSummaryCallKwargs:
+    def test_default_is_calibrated_off(self):
+        kw = summary_call_kwargs()
+        assert kw["reasoning"] == {"enabled": False}
+        assert kw["max_tokens"] == 1024
+        assert kw["require_content"] is True
+
+    def test_env_switch_selects_reasoning_ablation(self, monkeypatch):
+        monkeypatch.setenv("CONTEXT_EVAL_SUMMARIZER_REASONING", "on")
+        import importlib
+
+        import context_eval.strategies.lcm as m
+        importlib.reload(m)
+        try:
+            kw = m.summary_call_kwargs()
+            assert "reasoning" not in kw
+            assert kw["max_tokens"] == m.SUMMARY_MAX_TOKENS
+            assert kw["require_content"] is True
+        finally:
+            monkeypatch.delenv("CONTEXT_EVAL_SUMMARIZER_REASONING")
+            importlib.reload(m)

@@ -15,11 +15,13 @@ class StubLLM:
     def __init__(self):
         self.calls = 0
         self.prompts: list[str] = []
+        self.kwargs: list[dict] = []
 
     def complete(self, messages, *, tools=None, max_tokens=1024,
                  temperature=0.0, reasoning=None, require_content=False):
         self.calls += 1
         self.prompts.append(messages[-1]["content"] if messages else "")
+        self.kwargs.append({"reasoning": reasoning, "require_content": require_content})
 
         class R:
             text = "summary: fixed flaky parser test; version 2.3.1; pytest 8.2"
@@ -260,3 +262,16 @@ def test_registry_entries():
     assert set(REGISTRY) >= {"flat-compact", "context-editing"}
     assert build("flat-compact").name == "flat-compact"
     assert build("context-editing").name == "context-editing"
+
+
+class TestCalibratedCall:
+    def test_fold_uses_calibrated_kwargs(self):
+        llm = StubLLM()
+        eng = make_engine(corpus(), budget_tokens=200, llm=llm)
+        s = FlatCompact()
+        for _ in range(len(eng.store.messages())):
+            s.on_turn(eng)
+        assert llm.calls >= 1
+        assert all(k["reasoning"] == {"enabled": False} for k in llm.kwargs)
+        assert all(k["require_content"] for k in llm.kwargs)
+        assert "150 words" in llm.prompts[0]
