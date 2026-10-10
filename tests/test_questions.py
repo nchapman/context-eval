@@ -121,3 +121,33 @@ class TestLocomoInjection:
         sample, questions = inject_needles(locomo_sample(n_turns=2), n=5, seed=0)
         assert len(questions) == 2  # exactly min(n, pool, len(FACTS))
         assert len([m for m in sample.messages if m.meta.get("needle")]) == 2
+
+
+class TestMidPlacement:
+    def test_mid_needle_lands_outside_preview_windows(self):
+        from context_eval.datasets.base import ReplayMessage, ReplaySample
+        from context_eval.questions import inject_needles
+        from context_eval.types import Role
+
+        body = "\n".join(f"line {i:03d} " + "x" * 60 for i in range(40))
+        msgs = [ReplayMessage(role=Role.TOOL, content=body, meta={})]
+        sample = ReplaySample(dataset="swe", sample_id="s", messages=msgs, meta={})
+        injected, qs = inject_needles(sample, n=1, seed=7, position="mid")
+        needle_line = next(
+            ln for ln in injected.messages[0].content.split("\n") if "line" not in ln
+        )
+        flat = injected.messages[0].content
+        at = flat.index(needle_line)
+        # outside ARC's head:100/tail:60 preview span, with margin
+        assert 250 <= at <= len(flat) - 250
+        assert qs[0].answer in needle_line
+
+    def test_mid_skips_short_observations(self):
+        from context_eval.datasets.base import ReplayMessage, ReplaySample
+        from context_eval.questions import inject_needles
+        from context_eval.types import Role
+
+        msgs = [ReplayMessage(role=Role.TOOL, content="short obs", meta={})]
+        sample = ReplaySample(dataset="swe", sample_id="s", messages=msgs, meta={})
+        injected, qs = inject_needles(sample, n=2, seed=0, position="mid")
+        assert qs == [] and injected.messages[0].content == "short obs"

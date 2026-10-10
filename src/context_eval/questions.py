@@ -211,12 +211,22 @@ def _spread(count: int, pool: list[int]) -> list[int]:
 
 
 def inject_needles(
-    sample: ReplaySample, n: int = 5, seed: int = 0
+    sample: ReplaySample, n: int = 5, seed: int = 0, position: str = "random"
 ) -> tuple[ReplaySample, list[Question]]:
+    """position="mid" plants needles in the body of long tool
+    observations, guaranteed outside any head/tail citation preview
+    (ARC keeps ~100 head + ~60 tail chars) — recovery then requires the
+    recall tool, not the view."""
     """Return a needle-injected copy of the sample plus its questions."""
     if n <= 0:
         return sample, []
     pool = _eligible_indices(sample)
+    if position == "mid":
+        pool = [
+            i for i in pool
+            if sample.messages[i].role is Role.TOOL
+            and len(sample.messages[i].content) > 800
+        ]
     if not pool:
         return sample, []
 
@@ -235,13 +245,25 @@ def inject_needles(
         target = messages[pos]
 
         if target.role is Role.TOOL:
-            # Insert at a seeded random line boundary, not always the end:
-            # deterministic per seed, but the needle's position inside the
-            # observation must not systematically land in any strategy's
-            # preview window (e.g. ARC keeps head+tail of cited messages).
             line = fact.container.format(v=value)
             lines = target.content.split("\n")
-            at = rng.randrange(len(lines) + 1)
+            if position == "mid":
+                # insert at a line boundary whose char offset is inside
+                # [250, len-250]: outside head:100/tail:60 previews with
+                # margin, deterministic per seed
+                offsets, acc = [], 0
+                for ln in lines:
+                    offsets.append(acc)
+                    acc += len(ln) + 1
+                lo, hi = 250, len(target.content) - 250
+                eligible = [k for k, o in enumerate(offsets) if lo <= o <= hi]
+                at = eligible[rng.randrange(len(eligible))] if eligible else len(lines) // 2
+            else:
+                # Insert at a seeded random line boundary, not always the end:
+                # deterministic per seed, but the needle's position inside the
+                # observation must not systematically land in any strategy's
+                # preview window (e.g. ARC keeps head+tail of cited messages).
+                at = rng.randrange(len(lines) + 1)
             content = "\n".join([*lines[:at], line, *lines[at:]])
             new_meta = dict(target.meta)
             new_meta["needle"] = True

@@ -19,7 +19,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from context_eval.datasets.base import read_jsonl
-from context_eval.driver import run_sample
+from context_eval.driver import SYSTEM_PROMPT, run_sample
 from context_eval.env import load_env
 from context_eval.provider import OpenRouterClient
 from context_eval.questions import (
@@ -47,14 +47,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--skip-locomo-qa", action="store_true")
     parser.add_argument("--trace-qa", type=Path, default=None,
                         help="trace-QA cache (scripts/trace_qa.py output)")
+    parser.add_argument("--needle-position", choices=["random", "mid"],
+                        default="random",
+                        help="mid: plant needles outside head/tail citation "
+                             "previews (recall-tool recovery required)")
+    parser.add_argument("--recall-instruct", action="store_true",
+                        help="append an explicit §-citation recall instruction "
+                             "to the system prompt (ARC discoverability test)")
     return parser.parse_args(argv)
 
 
 def build_questions(
     sample, needles: int, seed: int, max_q: int, skip_locomo: bool, topics: int = 0,
-    trace_qa: list | None = None,
+    trace_qa: list | None = None, needle_position: str = "random",
 ):
-    injected, questions = inject_needles(sample, n=needles, seed=seed)
+    injected, questions = inject_needles(
+        sample, n=needles, seed=seed, position=needle_position
+    )
     rng = random.Random(seed ^ 0x5EED)
     if topics:
         injected, seeded, distractors = inject_topics(injected, topics, rng)
@@ -121,6 +130,14 @@ def main(argv: list[str] | None = None) -> int:
     llm = OpenRouterClient()
     counter = default_counter()
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    system_prompt = SYSTEM_PROMPT
+    if args.recall_instruct:
+        system_prompt += (
+            " The history is compacted: messages shown as [§id · head:/tail:] "
+            "citations are truncated previews. When a detail you need is not "
+            "visible in a citation, call history_recall with that § id to "
+            "fetch the full original text."
+        )
     trace_qa_map = (
         json.loads(args.trace_qa.read_text()) if args.trace_qa and args.trace_qa.exists() else {}
     )
@@ -132,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
             injected, questions = build_questions(
                 sample, args.needles, args.seed, args.max_questions, args.skip_locomo_qa,
                 topics=args.topics, trace_qa=trace_qa_map.get(sample.sample_id),
+                needle_position=args.needle_position,
             )
             for name in strategy_names:
                 for budget in budgets:
@@ -142,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
                         llm=llm,
                         counter=counter,
                         budget_tokens=budget,
+                        system_prompt=system_prompt,
                     )
                     out_file.write(result.to_json() + "\n")
                     out_file.flush()
