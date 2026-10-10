@@ -12,6 +12,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import sys
 from collections import defaultdict
@@ -44,11 +45,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=Path("results/run.jsonl"))
     parser.add_argument("--skip-locomo-qa", action="store_true")
+    parser.add_argument("--trace-qa", type=Path, default=None,
+                        help="trace-QA cache (scripts/trace_qa.py output)")
     return parser.parse_args(argv)
 
 
 def build_questions(
-    sample, needles: int, seed: int, max_q: int, skip_locomo: bool, topics: int = 0
+    sample, needles: int, seed: int, max_q: int, skip_locomo: bool, topics: int = 0,
+    trace_qa: list | None = None,
 ):
     injected, questions = inject_needles(sample, n=needles, seed=seed)
     rng = random.Random(seed ^ 0x5EED)
@@ -75,6 +79,15 @@ def build_questions(
             )
             for qa in sample.meta["qa"]
         ]
+    for qa in trace_qa or []:
+        questions.append(
+            Question(
+                kind="trace_qa",
+                question=qa["question"],
+                answer=qa["answer"],
+                category="trace",
+            )
+        )
     if max_q and len(questions) > max_q:
         rng = random.Random(seed)
         # Cap the QA pool; keep every needle (depth curves) and the
@@ -108,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
     llm = OpenRouterClient()
     counter = default_counter()
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    trace_qa_map = (
+        json.loads(args.trace_qa.read_text()) if args.trace_qa and args.trace_qa.exists() else {}
+    )
 
     runs = 0
     grouped: dict[tuple[str, int], list] = defaultdict(list)
@@ -115,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
         for sample in samples:
             injected, questions = build_questions(
                 sample, args.needles, args.seed, args.max_questions, args.skip_locomo_qa,
-                topics=args.topics,
+                topics=args.topics, trace_qa=trace_qa_map.get(sample.sample_id),
             )
             for name in strategy_names:
                 for budget in budgets:

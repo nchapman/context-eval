@@ -514,10 +514,11 @@ Priced recipe, current evidence:
 - **Judge = solver.** The judge is the same flash; ≥0.5 grading is coarse.
   Systematic bias would have to favor one arm's phrasing to reorder
   results.
-- **Estimator gaps.** `CharEstimator` (≈4 chars/token) vs provider counts
-  drifts a few percent; budgets are view-bounds and the same estimator
-  prices every arm symmetrically. Calibration against recorded usage is on
-  the backlog.
+- **Estimator gaps.** Calibrated against provider counts (24 live
+  calls): true tokens = 0.928 × (chars/4) + 1.6/message — the estimator
+  overcharges ~7.7% on content and ~2.4/message, both conservative and
+  symmetric across arms, so comparisons are unaffected; constants kept
+  to preserve budget comparability with recorded runs.
 - **n at uncapped tier.** 3 pi sessions per cell; CIs are wide ([0.76,
   1.00] on flat's 256K 1.00). The flat-vs-lcm ordering there is
   consistent with the n=25 deployment tier, but treat magnitudes

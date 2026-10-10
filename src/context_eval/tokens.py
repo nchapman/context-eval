@@ -23,6 +23,13 @@ TOKENIZER_PATH = Path(
 
 # Rough chat-framing overhead per message (role tags, delimiters). Applied
 # uniformly to every strategy, so it never biases comparisons.
+# Calibration (scripts/calibrate_overhead.py, 24 live calls, deepseek
+# fp8): true tokens = 0.928 * (chars/4) + 1.6/message — i.e. CHARS_PER_TOKEN=4
+# overestimates content by ~7.7% and MESSAGE_OVERHEAD_TOKENS overcharges by
+# ~2.4/message. Both errors are conservative (views slightly smaller than
+# nominal) and symmetric across arms, so they cannot reorder comparisons;
+# the constants are kept unchanged to preserve budget comparability with
+# every recorded run.
 MESSAGE_OVERHEAD_TOKENS = 4
 
 CHARS_PER_TOKEN = 4

@@ -6,6 +6,7 @@ from context_eval.judge import (
     locomo_score,
     needle_score,
     score_question,
+    trace_recall_score,
 )
 from context_eval.questions import Question
 from context_eval.types import Usage
@@ -127,3 +128,18 @@ class TestLLMJudge:
         score = LLMJudge(self._fake("maybe??")).score(q, "ref answer")
         assert score.method == "llm_judge_f1_fallback"
         assert score.value == 1.0
+
+
+class TestTraceRecall:
+    def test_verbose_correct_answer_scores_full(self):
+        assert trace_recall_score(
+            "The fix adds `,omitempty` to the JSON tag", "add `omitempty` to the JSON tag"
+        ) == 1.0
+
+    def test_abstention_scores_zero(self):
+        assert trace_recall_score("I don't know", "Direct invocation of nextjs-routes") == 0.0
+
+    def test_partial_recall_is_fractional(self):
+        # omitempty present, colos absent: 1 of 2 content tokens
+        score = trace_recall_score("add `,omitempty`", "`Colos` should include `,omitempty`")
+        assert 0.0 < score < 1.0

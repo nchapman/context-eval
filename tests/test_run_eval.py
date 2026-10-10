@@ -1,4 +1,4 @@
-from context_eval.datasets.base import ReplayMessage, ReplaySample
+from context_eval.datasets.base import ReplayMessage, ReplaySample, read_jsonl
 from context_eval.run_eval import build_questions, parse_args
 from context_eval.types import Role
 
@@ -138,3 +138,22 @@ def test_rerun_truncates_output(tmp_path, monkeypatch):
     lines = [json.loads(ln) for ln in out.read_text().splitlines()]
     assert len(lines) == 1  # replaced, not appended: no stale, no doubling
     assert "stale" not in lines[0]
+
+
+class TestTraceQa:
+    def test_build_questions_appends_trace_qa(self):
+        from context_eval.run_eval import build_questions
+        sample = read_jsonl("data/locomo.jsonl").__iter__().__next__()
+        _, qs = build_questions(sample, needles=2, seed=0, max_q=0,
+                                skip_locomo=True,
+                                trace_qa=[{"question": "q?", "answer": "a"}])
+        tq = [q for q in qs if q.kind == "trace_qa"]
+        assert len(tq) == 1 and tq[0].answer == "a" and tq[0].category == "trace"
+
+    def test_trace_qa_respects_max_q_pool(self):
+        from context_eval.run_eval import build_questions
+        sample = read_jsonl("data/locomo.jsonl").__iter__().__next__()
+        _, qs = build_questions(sample, needles=2, seed=0, max_q=3,
+                                skip_locomo=True,
+                                trace_qa=[{"question": f"q{i}?", "answer": "a"} for i in range(5)])
+        assert len([q for q in qs if q.kind == "trace_qa"]) == 1  # 2 needles + 1 pool slot

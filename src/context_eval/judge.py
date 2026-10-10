@@ -57,6 +57,19 @@ def f1_score(prediction: str, ground_truth: str) -> float:
     return (2 * precision * recall) / (precision + recall)
 
 
+def trace_recall_score(prediction: str, gold: str) -> float:
+    """Gold-token recall: fraction of the gold's stemmed tokens the
+    prediction contains. Retention, not brevity, is the construct —
+    correct-but-verbose answers score 1.0 under recall while symmetric
+    F1 punishes them (measured: gold 'pages/', prediction containing it,
+    F1 0.14)."""
+    gold_tokens = _stemmed_tokens(gold)
+    if not gold_tokens:
+        return 0.0
+    pred_tokens = set(_stemmed_tokens(prediction))
+    return sum(1 for t in gold_tokens if t in pred_tokens) / len(gold_tokens)
+
+
 def f1(prediction: str, ground_truth: str) -> float:
     """Authors' f1: comma-split multi-answer; mean over gold of max over pred."""
     predictions = [p.strip() for p in prediction.split(",")]
@@ -99,7 +112,7 @@ def score_question(question: Question, prediction: str) -> Score:
             locomo_score(question.category, prediction, question.answer), "locomo_f1"
         )
     if question.kind == "trace_qa":
-        return Score(f1_score(prediction, question.answer), "trace_f1")
+        return Score(trace_recall_score(prediction, question.answer), "trace_recall")
     if question.kind == "continuity":
         terms = list(question.meta.get("terms", []))
         distractors = list(question.meta.get("distractors", []))
