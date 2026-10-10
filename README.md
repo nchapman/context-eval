@@ -529,13 +529,40 @@ Priced recipe, current evidence:
    stress once its calls are calibrated (53%→84%, R3) — free insurance
    even under hierarchy. Maintained-memory variants pay their own cost:
    merge-churn regenerates the whole doc 9–10×/run and erodes inventory.
-5. **Budget for degradation.** Choose the strategy whose *failure* you can
+5. **Hold the view in the model's effective band; compact on crossing,
+   not on a clock.** Raw context degrades well below nominal — the
+   full-context arm scored 0.81 at 128K while compacted views of the
+   same sessions scored 0.94–1.00 — so "wait as long as possible"
+   optimizes the wrong variable twice: quality falls with raw size AND
+   every turn pays the whole view (our $/run replay costs hide this;
+   production pays per turn). Keep the working view at a steady size
+   inside the band you've validated (for flash: clean through 128K,
+   thinning at 256K) and compact when it crosses the high-water mark.
+6. **Event shape beats event frequency.** The loss variable is the
+   compaction event, not how often compaction happens: flat loses ~3 pts
+   at 0–1 folds and ~43 pts at 3.6 folds/run, while lcm's small-call
+   tree absorbs 4 folds/run at 99% inventory. A big-bang re-derivation
+   of the whole map is the wrong event shape at any frequency; small,
+   bounded, per-segment calls make compaction lossless enough to run
+   often. (Every measured summarizer miss was a needle lost at a
+   compaction event.)
+7. **Budget for degradation.** Choose the strategy whose *failure* you can
    afford: lost-delta (representation) vs wiped-map (flat) vs
    lost-everything (window) — and remember calibration (R4) prevents the
    first two from ever firing.
 
+The through-line of all seven: **the compaction call is the unit of
+failure — and of design.** Calibrate it (2), size it small (4, 6),
+state its budget (2), and let the view it maintains ride in the
+effective band (5); everything else is preference.
+
 ## §6 Threats to validity
 
+- **Cost model is replay-based.** $/run prices one end-of-session
+  question battery; production pays the view every turn, so absolute
+  costs understate long sessions badly and per-turn framing (5) can
+  invert "compact late" intuitions. Cost *ratios* between arms transfer;
+  absolute spend does not.
 - **One model class.** flash builds every arm's memory and answers every
   question. Stronger summarizer models could reorder R1/R2 — but the
   truncation physics (R4) is a property of reasoning models as a class
