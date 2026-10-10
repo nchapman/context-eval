@@ -263,6 +263,34 @@ class TestFtsIndex:
         _, snippet = idx.search("frobnicator")[0]
         assert "frobnicator" in snippet
 
+    def test_phrase_match_outranks_vocabulary_collisions(self):
+        """A probe line like `[handoff] Next:` must surface even when the
+        corpus is full of single-term collisions (a pi session whose
+        project keeps HANDOFF.md files buried it below top-5)."""
+        from context_eval.strategies.lcm import _FtsIndex
+
+        idx = _FtsIndex()
+        texts = [
+            "handoff note for the engine agent — priorities + reading list",
+            "Now the MMQ attribution — trace both sides per the handoff",
+            "The handoff answers my question directly and corrects it",
+            "warp3090-perf/research/HANDOFF.md (6cf5a50)",
+            "env.sh GOALS.md HANDOFF.md kvarn lib log.md",
+        ]
+        msgs = [
+            type("M", (), {"id": f"m{i:06d}", "content": t})()
+            for i, t in enumerate(texts)
+        ]
+        probe = type(
+            "M", (), {"id": "m000099",
+                       "content": "[handoff] Next: write the regression test on amber-BNU"}
+        )()
+        msgs.append(probe)
+        idx.index(msgs)
+        top_id, top_snip = idx.search("[handoff] Next:", limit=5)[0]
+        assert top_id == "m000099"
+        assert "amber-BNU" in top_snip
+
 
 class TestTopicsLine:
     """P1 prompt variant: summaries must enumerate named topics so the

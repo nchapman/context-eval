@@ -34,8 +34,9 @@ CURRENCY_QUESTION = (
     "`topic: status`. Include every topic listed."
 )
 NEXT_STEP_QUESTION = (
-    "What was the agent about to do next, before the session continued? "
-    "Name the immediate next action stated in this session."
+    "At one point this session contains an explicit handoff note — a line "
+    "beginning `[handoff] Next:`. What immediate next action did it state, "
+    "and on which codename? Answer in one sentence."
 )
 
 _STATUSES = ("open", "resolved", "paused")

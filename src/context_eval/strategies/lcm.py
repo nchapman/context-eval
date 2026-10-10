@@ -382,6 +382,31 @@ class _FtsIndex:
     def search(self, query: str, limit: int = 5) -> list[tuple[str, str]]:
         if not query.strip():
             return []
+        results: list[tuple[str, str]] = []
+        # Exact-phrase boost: when the query appears verbatim in a message,
+        # that message outranks token-matches. Without this, a probe or
+        # artifact like `[handoff] Next:` can be buried below real content
+        # that merely shares vocabulary (measured on a pi session whose
+        # project keeps HANDOFF.md files: 9 colliding messages, top-5
+        # truncation, the phrase match never surfaced).
+        ql = re.sub(r"\s+", " ", query.strip()).lower()
+        if len(ql) >= 6:
+            if self._conn is not None:
+                rows = self._conn.execute(
+                    "SELECT id, content FROM msgs WHERE instr(lower(content), ?) "
+                    "LIMIT ?",
+                    (ql, limit),
+                ).fetchall()
+                results = [(r[0], self._phrase_snippet(r[1], ql)) for r in rows]
+            else:
+                ql_norm = ql
+                for mid, content in self._fallback:
+                    if ql_norm in content.lower():
+                        results.append((mid, self._phrase_snippet(content, ql_norm)))
+                        if len(results) >= limit:
+                            break
+        if len(results) >= limit:
+            return results
         if self._conn is not None:
             fts_query = self._fts_query(query)
             if fts_query:
@@ -389,12 +414,26 @@ class _FtsIndex:
                     cursor = self._conn.execute(
                         "SELECT id, snippet(msgs, 1, '>', '<', '…', 12) "
                         "FROM msgs WHERE msgs MATCH ? ORDER BY rank LIMIT ?",
-                        (fts_query, limit),
+                        (fts_query, limit * 2),
                     )
-                    return [(row[0], row[1]) for row in cursor]
+                    seen = {mid for mid, _ in results}
+                    for mid, snip in cursor:
+                        if mid not in seen:
+                            results.append((mid, snip))
+                            if len(results) >= limit:
+                                break
+                    return results
                 except sqlite3.Error:
                     pass  # malformed MATCH syntax: fall through to overlap
-        return self._overlap_search(query, limit)
+        return results + self._overlap_search(query, limit)
+
+    @staticmethod
+    def _phrase_snippet(content: str, phrase: str, width: int = 90) -> str:
+        at = content.lower().find(phrase)
+        start = max(0, at - width // 2)
+        window = content[start : start + width + len(phrase)]
+        mark = content[at : at + len(phrase)]
+        return window.replace(mark, f">{mark}<", 1)
 
     @staticmethod
     def _fts_query(query: str) -> str:

@@ -276,6 +276,33 @@ def run_sample(
     return result
 
 
+def _strip_tool_artifacts(wire: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rebuild an answer wire without tool-call/tool-result messages.
+
+    Keeps system, view, and question messages (assistant texts stay — they
+    carry narration). Used for the last-resort re-ask when a tool-saturated
+    wire keeps returning empty-stop completions.
+    """
+    kept = []
+    for m in wire:
+        if m.get("role") == "tool":
+            continue
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            continue
+        kept.append(m)
+    return [
+        *kept,
+        {
+            "role": "user",
+            "content": (
+                "Based on the session history above, answer the question "
+                "above in one or two sentences. If you truly cannot, say "
+                "what you do know that is relevant."
+            ),
+        },
+    ]
+
+
 def _ask(
     *,
     strategy: Strategy,
@@ -361,6 +388,21 @@ def _ask(
             text = nudged.text.strip() or (
                 nudged.reasoning.strip().splitlines()[-1]
                 if nudged.reasoning.strip() else ""
+            )
+        if not text:
+            # A tool-saturated wire can keep returning empty-stop even when
+            # nudged (observed deterministically on one pi session across
+            # all arms). Re-ask on a clean wire: tool artifacts stripped.
+            reask = llm.complete(
+                _strip_tool_artifacts(wire),
+                max_tokens=max_answer_tokens,
+                temperature=temperature,
+                require_content=True,
+            )
+            usage.add(reask.usage)
+            text = reask.text.strip() or (
+                reask.reasoning.strip().splitlines()[-1]
+                if reask.reasoning.strip() else ""
             )
         if not text and os.environ.get("CONTEXT_EVAL_DEBUG_ANSWERS"):
             print(
