@@ -137,3 +137,17 @@ class TestEmptyExtraction:
         eng = engine_for(80, 1500, llm)
         drive(eng, s)
         assert llm.calls <= 5  # ~4 batches for 80 msgs at this budget
+
+    def test_archive_search_parity(self):
+        """history_search over the verbatim archive ships with the arm
+        (without it the model exhausts the tool budget on thin
+        conclusions and answers blank)."""
+        llm = StubLLM(texts=["- corvid | open | flaky parser fix [§m0]"])
+        s = ConclusionsMemory()
+        eng = engine_for(60, 1500, llm)
+        drive(eng, s)
+        names = [t.schema.name for t in s.tools(eng)]
+        assert "history_search" in names and "history_recall" in names
+        hist = next(t for t in s.tools(eng) if t.schema.name == "history_search")
+        out = hist.execute({"query": "obs"})
+        assert out != "no matches" and "obs" in out

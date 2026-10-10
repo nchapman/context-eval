@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import sys
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -299,19 +301,30 @@ def _ask(
     tool_call_count = 0
     prediction = ""
     model = provider = ""
+    best_text = ""  # last non-empty narration alongside tool calls
 
     for _step in range(MAX_TOOL_STEPS + 1):
+        # On the final forced answer the tools are removed: a model still
+        # trying to search emits tool_calls with empty text and we record
+        # a blank. Without tools it must put the answer in content.
+        final_step = _step == MAX_TOOL_STEPS
         completion = llm.complete(
             wire,
-            tools=schemas or None,
+            tools=None if final_step else (schemas or None),
             max_tokens=max_answer_tokens,
             temperature=temperature,
+            # answers can blank the same way summaries did (reasoning eats
+            # the cap at length); escalate rather than record an empty
+            # prediction — symmetric across every arm
+            require_content=True,
         )
         usage.add(completion.usage)
         model, provider = completion.model or model, completion.provider or provider
 
         if completion.tool_calls and _step < MAX_TOOL_STEPS:
             tool_call_count += len(completion.tool_calls)
+            if completion.text.strip():
+                best_text = completion.text.strip()
             wire.append(assistant_tool_message(completion.tool_calls, completion.text))
             for tc in completion.tool_calls:
                 engine_tool = by_name.get(tc.name)
@@ -330,6 +343,34 @@ def _ask(
         if not text and completion.reasoning.strip():
             lines = [ln.strip() for ln in completion.reasoning.splitlines() if ln.strip()]
             text = lines[-1] if lines else ""
+        if not text:
+            # A tool-saturated wire with no tools left yields an empty
+            # stop completion (measured: finish=stop, 0 text, 0 reasoning).
+            # Prefer the model's own narration from the tool rounds; as a
+            # last resort force one no-tools nudge call.
+            text = best_text
+        if not text:
+            nudged = llm.complete(
+                [*wire, {"role": "user", "content":
+                 "Answer now in one or two sentences using what you found."}],
+                max_tokens=max_answer_tokens,
+                temperature=temperature,
+                require_content=True,
+            )
+            usage.add(nudged.usage)
+            text = nudged.text.strip() or (
+                nudged.reasoning.strip().splitlines()[-1]
+                if nudged.reasoning.strip() else ""
+            )
+        if not text and os.environ.get("CONTEXT_EVAL_DEBUG_ANSWERS"):
+            print(
+                f"[answer-debug] q={question.question[:60]!r} "
+                f"finish={completion.finish_reason} "
+                f"text_len={len(completion.text)} "
+                f"reason_len={len(completion.reasoning)} "
+                f"tools_in_wire={sum(1 for w in wire if w.get('role') == 'tool')}",
+                file=sys.stderr,
+            )
         prediction = text
         break
 

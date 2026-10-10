@@ -18,7 +18,7 @@ import re
 
 from context_eval.provider import ToolSchema
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
-from context_eval.strategies.lcm import summary_call_kwargs
+from context_eval.strategies.lcm import _FtsIndex, summary_call_kwargs
 from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
 from context_eval.types import PromptMessage, Role, Usage
 
@@ -78,6 +78,7 @@ class ConclusionsMemory(Strategy):
         self._keep_tail_frac = keep_tail_frac
         self._records: list[_Record] = []
         self._concluded_upto = 0  # store messages below this index are extracted
+        self._index = _FtsIndex()  # verbatim archive (parity with flat/lcm)
         self._compactions = 0
         self._empty = 0
         self._search_calls = 0
@@ -89,6 +90,8 @@ class ConclusionsMemory(Strategy):
         counter = engine.counter
         budget = engine.budget.max_context_tokens
         messages = engine.store.messages()
+        if len(messages) > self._index.indexed_upto:
+            self._index.index(messages[self._index.indexed_upto :])
         # Trigger on the projected view (unconcluded messages, tail
         # included) — matching how deployed agents compact on projected
         # context. Raw-total triggers thrash one call per turn once the
@@ -231,7 +234,54 @@ class ConclusionsMemory(Strategy):
                 return "no matching conclusions"
             return "\n".join(f"[{i}] {r.raw}" for i, r in enumerate(hits))
 
-        return [EngineTool(schema=schema, execute=execute)]
+        # Verbatim archive parity: without history_search the model
+        # hammer-searches thin conclusions, exhausts the tool budget, and
+        # answers blank (measured: ~25% blank answers on the smoke).
+        archive = ToolSchema(
+            name="history_search",
+            description=(
+                "Search the verbatim archive of this session (including "
+                "compacted segments). Returns matching message ids with "
+                "snippets; history_recall fetches full content by id."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "search terms"}
+                },
+                "required": ["query"],
+            },
+        )
+
+        def do_search(args):
+            results = self._index.search(str(args.get("query", "")), limit=5)
+            if not results:
+                return "no matches"
+            return "\n".join(f"{mid}: {snippet}" for mid, snippet in results)
+
+        recall = ToolSchema(
+            name="history_recall",
+            description="Return the full original content of a message by id.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "message id, e.g. m000014"}
+                },
+                "required": ["id"],
+            },
+        )
+
+        def do_recall(args):
+            try:
+                return engine.store.require(str(args.get("id", ""))).content
+            except KeyError:
+                return "no such message id"
+
+        return [
+            EngineTool(schema=schema, execute=execute),
+            EngineTool(schema=archive, execute=do_search),
+            EngineTool(schema=recall, execute=do_recall),
+        ]
 
     def stats(self) -> StrategyStats:
         return StrategyStats(
