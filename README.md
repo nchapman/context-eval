@@ -10,23 +10,29 @@ the same model with the same cost accounting: 600+ runs across LoCoMo
 dialogues, SWE-bench-derived traces, and real multi-day agent sessions up to
 2M tokens. Four findings survive every budget tier we could afford:
 
-1. **Hierarchy doesn't pay.** The deployed flat summary (`/compact`) matches
-   or beats the LCM summary DAG everywhere (0.95 vs 0.94 @128K, 1.00 vs 0.92
-   @256K), and plain retrieval over a verbatim archive ties both at zero
-   summarization overhead.
-2. **The default won while broken.** A reasoning-cap bug silently blanked
-   flat's summaries for the entire main suite — and it *still* won, on
-   verbatim tail + archive search alone. Summaries were never carrying the
-   deployment-tier scores.
-3. **Inventory is not promptable.** Instructing fold-based summarizers to
-   enumerate open topics *degrades* continuity mechanically: the instruction
-   adds output burden to length-capped calls, truncation explodes, the map
-   blanks (up to 100% empty folds measured).
-4. **Inventory is architectural.** A maintained memory document — merged
-   incrementally, never re-derived — wins uncued topic recall at every
-   budget (54%/68% vs flat's 34%/62%) with the lowest abstention, at QA
-   parity, for a priced ~3× summarization premium. Maintained state carries
-   what regenerated output cannot.
+1. **On cued recall, every archive-preserving strategy ties — structure
+   buys nothing.** Flat `/compact`, plain retrieval over a verbatim
+   archive, and the LCM hierarchy are statistically indistinguishable at
+   deployment budgets (0.94–0.95 @128K; 1.00/1.00/0.92 @256K), while
+   eviction-only (0.69) and in-place editing (0.75) lose and full-context
+   is infeasible (overflow). Retrieval matches the summarizers at $0
+   compaction cost.
+2. **On uncued inventory recall, strategies separate by how they maintain
+   the map.** Maintained memory (incremental merge) > flat fold >
+   hierarchical consolidation: 54%/34%/12% at 8K, 68%/62%/52% at 16K,
+   with maintained memory also failing most honestly (10–20% abstention
+   vs 30–80%).
+3. **Regenerated maps cannot be instructed into carrying state; maintained
+   maps carry it natively.** Adding a "keep a topic inventory" instruction
+   to fold-based summarizers *degrades* them (30%/19% recall, vs 62%/34%
+   uninstructed): instruction load increases truncation, which blanks the
+   map. The inventory question is architectural, not promptable.
+4. **Completion truncation is the shared failure physics — and the
+   differentiator.** On reasoning models, 29–61% of summarization calls
+   return empty across every summarizing strategy. Fold maps degrade
+   catastrophically (one empty fold wipes the map); maintained memory
+   degrades gracefully (one empty merge loses one delta). Under identical
+   physics, recall diverges.
 
 Everything here is reproducible from this repo: `scripts/run_suite.sh` with
 a preflight cost gate, ~$25 of total API spend at time of writing.
@@ -104,7 +110,7 @@ arms. Ablations are separate reports, never merged into shared cells.
 `empty_summaries` telemetry counts every compaction whose completion
 returned no content — nonzero means that arm is running with blank maps
 and every downstream number for it is suspect. (That invariant is finding
-F2's origin story.)
+the origin of the empty-summary invariant.)
 
 ## §3 The eight arms
 
@@ -169,9 +175,9 @@ agent continues from `[summary] + tail`. Repeated triggers re-summarize
 Compaction Theory warns about.
 
 **Isolates:** the baseline every research proposal must beat. It also
-carries our two cheapest lessons: F2 (it won the suite with blank
-summaries — tail + archive search carried it) and F4 (its continuity
-ceiling is structural).
+anchors R1 (its QA tie was achieved with tail + archive search even
+when its summaries blanked — see the measurement note) and R2/R3
+(its continuity ceiling is structural, and instruction-immune).
 
 ```
 turn n:   [ ────────── tail ────────── ]          view grows freely
@@ -187,14 +193,14 @@ zero summarization loss.
 **Isolates:** whether summaries matter at all when the archive is
 searchable. Deployment-tier answer: no — 0.95 @128K, 1.00 @256K, tying
 flat at $0.00 compaction overhead vs its $0.0065/run. Summaries' value
-shows up only under continuity, not QA (F5).
+shows up only under continuity, not QA (R2).
 
 ### arc — addressable citations
 Every message keeps an anchor (`§m000123`); the view shows citations with
 snippets; `history_recall(id)` fetches full originals deterministically
 (Cognition's blog design).
 **Isolates:** whether *deterministic* recall tools get used. They don't:
-**0 tool calls in 511 runs** (F3). Discoverability is the boundary — a
+**0 tool calls in 511 runs** (R5). Discoverability is the boundary — a
 tool the model doesn't spontaneously call does not exist, no matter how
 clean its contract.
 
@@ -233,12 +239,12 @@ drops the deployment machinery (async queue, dialectic tiers, dreamer):
 The memory is a bounded doc (Goal & decisions | Entities & values | Open
 threads `name|status`); updates fire per ~2K new tokens; the view is
 `[memory] + verbatim tail`, same tools as flat. **Isolates:** whether
-*maintaining* the map beats *regenerating* it — the exact capability F4
+*maintaining* the map beats *regenerating* it — the exact capability R3
 showed fold-based summarizers cannot carry.
 
 ## §4 Findings
 
-### F1 — Hierarchy doesn't pay (and search is free)
+### R1 — On cued recall, archive-preserving strategies tie; structure buys nothing
 
 | @128K SWE (n=22-25) | acc | acc* | overhead $/run |
 |---|---|---|---|
@@ -249,136 +255,150 @@ showed fold-based summarizers cannot carry.
 | sliding-window | 0.69 | 0.69 | $0.0000 |
 | full-context | 0.81 | 0.58 | — (7/25 overflow) |
 
-At 256K on real agent sessions: flat 1.00, retrieval 1.00, lcm 0.92. The
-DAG's extra calls buy nothing the flat fold doesn't already provide, and
-retrieval demonstrates that at these budgets a verbatim archive + search
-is worth a summary. Deep-needle splits agree: arms that keep/search
-verbatim recover deep facts; summarizers' deep recall tracks whatever
-their summaries happened to retain.
+At 256K on real agent sessions: flat 1.00, retrieval 1.00, lcm 0.92. When
+the question points at the information (needles, corpus QA), any strategy
+that keeps or can find the verbatim past performs equally — the DAG's
+extra calls buy nothing a flat fold doesn't provide, and a searchable
+archive is worth a summary at zero summarization cost. What separates the
+tiers is what happens to information outside the view: eviction loses it
+(window 0.69), pruning loses reasoning (editing 0.75), and overflow loses
+everything (full-context 0.81→0.58 penalized).
 
-### F2 — The default won while broken
+### R2 — On uncued recall, strategies separate by how they maintain the map
 
-flash is a reasoning model, and `max_tokens` caps reasoning *and* content
-together. At the original 2048 summary cap, big folds spent it all
-thinking:
+The continuity probe asks, with no cue, for the session's topic inventory.
+Same grid, same model, same cap (n=10/cell):
 
-```
-completion budget ▐ 2048 tokens ▌
-reasoning        ██████████████████████ 2039
-content          ▏ 18 chars, finish=length
-```
+| LoCoMo continuity | map regime | recall | abst | QA |
+|---|---|---|---|---|
+| representation @8K | maintained (merge) | **54%** | **20%** | 70% |
+| flat-compact @8K | regenerated (fold) | 34% | 40% | 68% |
+| lcm @8K | regenerated (tree) | 12% | 80% | 68% |
+| representation @16K | maintained (merge) | **68%** | **10%** | 68% |
+| flat-compact @16K | regenerated (fold) | 62% | 30% | 70% |
+| lcm @16K | regenerated (tree) | 52% | 40% | 69% |
 
-`compactions=4, summary_chars=0`: flat ran the entire main suite
-**summary-less** — and still won F1, on tail + archive search. Two
-consequences. First, the honest headline: flat's deployment-tier wins never
-depended on its summaries. Second, the invariant: `empty_summaries` now
-counts blank compactions in every run, and a nonzero count invalidates the
-arm's cells (this bug hid behind `or self._summary` guards for 511 runs).
-At 4096 the summaries land — and empty-fold rates of 42–61% at stress
-budgets remain (F4, F5), because the physics scales with input size.
+The ordering — maintained > flat-fold > hierarchical — holds at both
+budgets, as does the abstention ordering (same direction). The
+hierarchy's structure, built to preserve detail at scale, is the *worst*
+uncued-inventory keeper at stress budgets: consolidation layers are
+exactly where enumerated topics stop surviving. Overhead prices the
+regimes: ~55K tokens/run for ~8-9 amortized merges (representation) vs
+18-34K for 1-2 folds (flat) vs 30-70K for the D1+DN ladder (lcm).
 
-### F3 — Tools that aren't called don't exist
+### R3 — Regenerated maps can't be instructed into carrying state
 
-ARC's deterministic `history_recall`: 0 invocations across 511 runs. The
-model searches (flat's `history_search`: ~5-8 calls/run at stress) but
-never escalates to targeted recall — not fixable by prompt description
-(we tried; documented in docs/lit-review.md as a model-behavior boundary).
-The chain is **discoverability → usage → recovery**: only the first link
-is the tool designer's. Deployment lesson: inject, don't advertise.
-
-### F4 — Inventory is not promptable
-
-The continuity probe asks, uncued, for the session's topic inventory. We
-compared flat/lcm with and without an explicit "end every summary with a
-TOPICS line" instruction (same model, same cap, n=10/cell):
+If the R2 gap were a prompting deficiency, an explicit instruction should
+close it. It does the opposite. Adding "end every summary with a TOPICS
+line enumerating named projects and their status" to both fold-based
+summarizers (same model, same cap, n=10/cell):
 
 ```
 LoCoMo continuity recall (recall / % empty folds)
                       no instruction     + TOPICS instruction
-flat @8K   34%              │  19%   ← instruction made it WORSE
+flat @8K   34%              │  19%   ← instruction made it worse
 lcm  @8K   12%              │   0%
 flat @16K  62%              │  30%   ← 100% of folds truncated empty
 lcm  @16K  52%              │  15%
 ```
 
-The instruction doesn't inform the summarizer — it *loads* it. More output
-target + more reasoning on a length-capped call means more truncation
-(flat hit 100% empty folds at 16K), blanker maps, more abstention. On
-reasoning models, prompt content and completion-cap physics are entangled:
-you cannot buy state with words when the words are what gets truncated.
+The instruction doesn't inform the summarizer — it loads it. More output
+target plus more reasoning on a length-capped call means more truncation
+(flat: 100% of folds empty at 16K), blanker maps, more abstention. On
+reasoning models, prompt content and completion-cap physics are
+entangled: you cannot buy state with words when the words are what gets
+truncated. Maintained memory needs no such instruction — the inventory is
+its content, not an output format.
 
-### F5 — Inventory is architectural
+### R4 — Under shared truncation physics, map regime decides the failure shape
 
-The representation arm, same grid, same cap (n=10/cell):
+On this model class, 29–61% of summarization calls return empty
+(measured per arm: flat 42–61%, lcm 42–50%, representation 29–43% of
+folds/merges) — reasoning consumes the completion cap before content.
+This is a property of *every summarizing strategy* on reasoning models,
+and it is where the map regimes diverge structurally:
 
-| LoCoMo continuity | recall | abst | QA | empty merges | overhead tok/run |
-|---|---|---|---|---|---|
-| representation @8K | **54%** | **20%** | 70% | 43% | ~55K |
-| flat @8K | 34% | 40% | 68% | 61% | 34K |
-| lcm @8K | 12% | 80% | 68% | 50% | 70K |
-| representation @16K | **68%** | **10%** | 68% | 29% | ~55K |
-| flat @16K | 62% | 30% | 70% | 42% | 18K |
-| lcm @16K | 52% | 40% | 69% | 42% | 30K |
+```
+fold arm, one empty compaction:   [MAP WIPED] + tail + tools
+merge arm, one empty merge:       [map − that delta] + tail + tools
+```
 
-Best continuity at both budgets, lowest abstention everywhere, QA parity —
-for ~3× flat's summarization overhead at 16K (the amortization premium:
-~8-9 small merges per run instead of 1-2 big folds). And the failure modes
-differ in *kind*: both arms lose folds/merges to the same truncation
-physics, but a lost merge costs one delta (memory preserved, tail and
-tools intact) while a lost fold wipes the arm's entire map. That asymmetry
-— graceful vs catastrophic degradation under identical physics — is why
-the recall gap doesn't close even with 29-43% of merges blank.
+R2's recall ordering persists *despite* representation losing 29–43% of
+its merges: each loss costs one bounded delta while the maintained map
+survives; a fold arm's empty compaction costs its entire map until the
+next successful fold. Catastrophic vs graceful degradation under
+identical external physics is a strategy property, not luck.
 
-Together F4+F5 are the project's core claim: **the session inventory
-persists only when it is maintained state, not when it is regenerated
-output.**
+### R5 — Models search; they don't recall
 
-### F6 — Honest misses ≠ confabulation
+Across 511 suite runs, the models spontaneously issue archive search
+(flat: ~5-8 `history_search` calls/run at stress; retrieval's whole
+design) but **never once** call ARC's deterministic `history_recall`
+(0/511) — not fixable by tool description (documented as a
+model-behavior boundary in docs/lit-review.md). Tool-mediated recovery
+has a discoverability→usage→recovery chain, and only the first link
+belongs to the tool designer. Strategies that inject their map into the
+don't depend on it; strategies that gate recovery behind targeted tool
+calls surrender it.
 
-`acc` hides failure mode. At stress tier, flat abstains on 32% (blank,
-scores 0 — the honest miss) while window splits 15% abst / 48% confab.
-Overflow-penalized `acc*` exposes the strategies that only look cheap:
-full-context 0.81 → 0.58 @128K, arc 0.91 → 0.80. An agent that
-confidently hallucinates a superseded decision is a different product
-failure than one that says nothing; the report splits them everywhere.
+### R6 — Who fails honestly
 
-### F7 — Thinking-drop robustness
+`acc` conflates failure modes; the abst/confab split separates them.
+At stress budgets, summarizers abstain (flat 32% blank, scoring 0 — the
+honest miss) while window splits 15% abst / 48% confab — an agent that
+confidently states a superseded decision is a different product failure
+than one that says nothing. Overflow-penalized `acc*` exposes the same
+honesty dimension across tiers: full-context 0.81→0.58, arc 0.91→0.80,
+flat/lcm/retrieval unchanged (they never overflow).
 
-Real pi sessions with reasoning-turn representations dropped vs preserved
-(thinking/ directory): summarizers hold up (flat 0.92, lcm 1.00), window
-collapses to 0.17. Whatever the memory strategy, it must survive the
-transcript *as the deployment actually persists it* — including dropped
-or recapped reasoning — and summarization-based views are notably robust
-to that specific mutation.
+### R7 — Thinking-drop robustness
 
-### F8 — Reasoning separation (in flight)
+Real pi sessions with reasoning-turn representations dropped vs
+preserved: summarizer-backed strategies hold up (flat 0.92, lcm 1.00),
+window collapses to 0.17. A memory strategy must survive the transcript
+as deployments actually persist it — including dropped or recapped
+reasoning — and derived-view strategies are notably robust to that
+mutation while verbatim-window views are not.
 
-An 8192 summary cap across all three summarizing arms is running as this
-is written; results amend this section. The question: with full reasoning
-headroom, do empty folds/merges collapse — and does the F5 ordering
-survive at full strength, or does flat close the continuity gap once its
-summaries reliably land? Both outcomes are findings; the experiment
-design guarantees attribution (cap is the only variable vs the F5 table).
+### R8 — Reasoning separation (in flight)
+
+An 8192 completion cap across all three summarizing arms is running as
+this is written; results amend this section. The question: with full
+headroom, does R4's truncation rate collapse — and does R2's ordering
+survive when folds land as reliably as merges? Either answer sharpens
+the map-regime claim.
+
+### A note on measurement hazards
+
+Three of the above numbers exist only because the harness caught us
+being wrong: the main suite's flat arm ran with silently empty summaries
+(caught later; R1's tie among summarizers was achieved by tail+search
+alone, and `empty_summaries` telemetry now makes it an invariant);
+a first port of the representation arm re-created fold physics by
+tau-batching deltas; a delta trigger miscounted the kept tail and
+thrashed merges. We report them here not as findings but as the reason
+§2's discipline exists: on reasoning models, *blank completions are the
+default failure mode of summarization*, and an eval that doesn't count
+them will misattribute everything downstream.
 
 ## §5 What we'd tell an agent builder
 
 Priced recipe, current evidence:
 
 1. **Verbatim tail + searchable archive is the floor, not the strategy.**
-   It ties full summarization on QA at $0 compaction cost (F1). Flat's
-   real win was never its summary (F2).
+   It ties full summarization on QA at $0 compaction cost (R1).
 2. **If you summarize, budget reasoning separately from content.** A
    shared cap is a silent killer: measured 42–100% empty folds, invisible
    without telemetry. Cap at 2× your content target minimum; count empty
    completions; fail loudly.
-3. **Don't rely on the model calling memory tools.** 0/511 (F3). Inject
+3. **Don't rely on the model calling memory tools.** 0/511 (R5). Inject
    the map into the view; search on the model's own initiative happens,
    targeted recall doesn't.
 4. **If continuity matters, maintain the inventory — don't regenerate
    it.** A bounded memory doc merged per ~2K new tokens beats fold-based
    summarizers on uncued recall by +20/+6 pts with less abstention, at a
-   measured ~3× summarization premium (F5). Prompting your summarizer to
-   "keep a topic list" makes things worse, mechanically (F4).
+   measured ~3× summarization premium (R2). Prompting your summarizer to
+   "keep a topic list" makes things worse, mechanically (R3).
 5. **Budget for degradation.** Choose the strategy whose *failure* you can
    afford: lost-delta (representation) vs wiped-map (flat/lcm) vs
    lost-everything (window).
@@ -386,8 +406,8 @@ Priced recipe, current evidence:
 ## §6 Threats to validity
 
 - **One model class.** flash builds every arm's memory and answers every
-  question. Stronger summarizer models could reorder F1/F5 — but the
-  truncation physics (F2/F4) is a property of reasoning models as a class,
+  question. Stronger summarizer models could reorder R1/R2 — but the
+  truncation physics (R4) is a property of reasoning models as a class,
   and our single-model design is what makes the comparisons causal.
 - **Judge = solver.** The judge is the same flash; ≥0.5 grading is coarse.
   Systematic bias would have to favor one arm's phrasing to reorder
@@ -404,7 +424,7 @@ Priced recipe, current evidence:
   synchronous, no dialectic tiers or dreamer. Results license claims
   about the incremental-merge mechanism, not about their product (their
   async deriver with big-model budgets is precisely the deployment
-  answer to F2's physics).
+  answer to R4's physics).
 - **Synthetic markers.** Continuity topics are seeded distinctive terms
   ("VELA-9", "amphora"); recall-of-real-inventory may differ in ways that
   flatter verbatim matching. The abst/confab split partially controls
