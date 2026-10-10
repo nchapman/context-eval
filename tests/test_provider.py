@@ -183,6 +183,23 @@ class TestOpenRouterClient:
             client.complete([{"role": "user", "content": "q"}])
         assert len(attempts) == 1
 
+    def test_reasoning_param_passes_through_when_given(self, tmp_path):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json=ok_response())
+
+        client = OpenRouterClient(
+            model="deepseek/deepseek-chat", api_key="sk-test",
+            stream=False, http_client=_client(handler),
+        )
+        client.complete([{"role": "user", "content": "hello"}],
+                        reasoning={"enabled": False})
+        assert captured["body"]["reasoning"] == {"enabled": False}
+        client.complete([{"role": "user", "content": "hello"}])
+        assert "reasoning" not in captured["body"]
+
     def test_non_stream_mode_sends_plain_body(self):
         captured = {}
 

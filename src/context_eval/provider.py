@@ -181,6 +181,7 @@ class OpenRouterClient:
         tools: Sequence[ToolSchema] | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.0,
+        reasoning: Mapping[str, Any] | None = None,
     ) -> Completion:
         body: dict[str, Any] = {
             "model": self.model,
@@ -188,6 +189,11 @@ class OpenRouterClient:
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        if reasoning:
+            # e.g. {"enabled": False} for utility calls (summarization):
+            # validated against flash via OpenRouter -- honored end-to-end
+            # (reasoning_tokens drop to 0, content lands, clean stop).
+            body["reasoning"] = dict(reasoning)
         if tools:
             body["tools"] = [t.to_wire() for t in tools]
             body["tool_choice"] = "auto"
