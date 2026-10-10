@@ -198,7 +198,7 @@ class TestOpenRouterClient:
         assert "stream" not in captured["body"]
         assert captured["body"]["provider"] == {
             "only": ["baidu/fp8"],
-            "allow_fallbacks": False,
+            "allow_fallbacks": True,
         }
 
     def test_provider_error_in_body_raises(self):
@@ -357,7 +357,7 @@ class TestStreaming:
         assert captured["body"]["model"] == "deepseek/deepseek-v4.1-flash"
         assert captured["body"]["provider"] == {
             "only": ["baidu/fp8"],
-            "allow_fallbacks": False,
+            "allow_fallbacks": True,
         }
 
     def test_stream_retry_on_transient_then_success(self):

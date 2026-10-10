@@ -62,7 +62,13 @@ def resolve_provider_tags(
     finally:
         if own:
             client.close()
-DEFAULT_ALLOW_FALLBACKS = False
+# Fallbacks ON by default: pinning to the fp8 `only` list with
+# allow_fallbacks=False funneled evening traffic onto whichever fp8
+# upstream OpenRouter preferred (baidu), whose shared-pool per-key rate
+# limits then 429'd sequential single calls. With fallbacks enabled the
+# pin stays a *preference* (fp8 pricing when healthy) and OpenRouter can
+# route around a congested or throttled upstream.
+DEFAULT_ALLOW_FALLBACKS = True
 
 # OpenAI wire-format message dicts. Kept as plain dicts: the provider stays a
 # dumb transport and the harness owns transcript <-> wire conversion.
