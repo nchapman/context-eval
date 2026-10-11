@@ -261,3 +261,41 @@ the misses — whereas a fold arm's empty compaction wipes its entire map.
 (3) Headroom: reasoning-separated merges (deferred 8192/provider-param
 experiment) should recover the empty merges; continuity could rise
 further at unchanged architecture.
+
+## Conclusions arm: append-only observations, mechanical assembly (Oct 2026)
+
+Second Honcho-informed arm, built after reading the v3 source (`~/Code/honcho`):
+the mechanism that matters is *not* the maintained-state merge the
+representation arm ported — it is the deriver's append-only typed
+observation store plus working representations **materialized at read
+time** (`get_working_representation`, `src/crud/representation.py`). The
+dreamer adds derived levels; nothing is ever rewritten in place.
+
+Design: extraction calls over aging segments emit `TOPIC | status | fact
+[§id]` bullets (calibrated via summary_call_kwargs); the store only
+appends; the view is code-assembled — latest-wins dedupe per topic
+(zero LLM, zero churn) as an always-resident inventory + bounded recent
+conclusions + verbatim tail; `conclusions_search` over bullets,
+`history_search`/`history_recall` over the verbatim archive. Where the
+representation arm's port measured whole-doc rewrite churn, this arm
+makes churn structurally impossible.
+
+**Grid64 (real pi sessions, 1-2M tokens, 64K cap, 3 arms x 3 seeds x 3
+sessions):** continuity 0.77 vs lcm 0.02 / flat 0.00; status currency
+0.80 vs 0.64 / 0.52; needles and seeded-handoff retrieval 1.00
+everywhere; answers -30% tokens vs both; peak views 18K vs 45K/57K —
+the inventory grows with distinct topics, not session length. R9 in the
+README carries the full result and the three probe-realism defects the
+grid exposed (phrase-rank requirement in archive search, ambiguous
+next-step wording on real corpora, models detecting synthetic probes).
+
+**Findings.** (1) The loss function of the memory design decides what
+survives at horizon: rewrite loses names and flips; tree keeps flips,
+loses names; append-only + mechanical dedupe keeps both. (2) The arm's
+single failure surface is extraction recall — a one-prompt rule
+mandating one-line status mentions as their own bullets moved continuity
+0.49 -> 0.77 and currency 0.67 -> 0.80 at unchanged cost; what the
+extractor never records, the inventory never carries. (3) Honcho's
+docker machinery (routing, dialectic tiers, dreamer) is deployment
+wrapper around this mechanism; the clean-room result says the mechanism
+itself is where the win is.

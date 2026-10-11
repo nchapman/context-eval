@@ -2,7 +2,7 @@
 
 **Does hierarchical compaction beat the `/compact` default? And what does it actually take for an agent to remember what it was working on?**
 
-We built a clean-room benchmark of eight context-management strategies — the
+We built a clean-room benchmark of nine context-management strategies — the
 truncation baselines, the deployed industry default, archive-search designs,
 a hierarchical summarizer (LCM), and an incremental-representation memory
 (a Honcho-mechanism port) — and ran all of them through the same harness on
@@ -124,7 +124,7 @@ returned no content — nonzero means that arm is running with blank maps
 and every downstream number for it is suspect. (That invariant is finding
 the origin of the empty-summary invariant.)
 
-## §3 The eight arms
+## §3 The nine arms
 
 The design space, mapped:
 
@@ -265,6 +265,24 @@ calls: merge-churn is its own loss channel — 9–10 whole-memory
 regenerations per run erode inventory (39–68% recall, R2), and its
 resilience under the shared-cap regime was the confound's cumulative
 masking, not architectural superiority.
+
+### conclusions — append-only observations, mechanically assembled
+The Honcho-v3 mechanism done right: extract *typed observations*
+(`TOPIC | status | fact [§id]`) from each aging segment and **append**
+them to a store that is never rewritten — the working representation is
+assembled in code at read time (latest-wins dedupe per topic), never
+re-derived by an LLM. The view is the mechanically-deduped inventory
+(always resident, grows with distinct topics only) + a bounded recent-
+conclusions block + verbatim tail, with `conclusions_search` over the
+bullets and `history_search`/`history_recall` over the verbatim archive.
+Extraction calls are the only loss events — small, calibrated, and
+capped per segment. **Isolates:** whether a *mechanical* assembly of
+append-only observations beats LLM-maintained maps (representation) and
+summary trees (lcm) on long horizons. It does — see R9 — and its single
+failure surface is extraction recall: what the extractor never records,
+the inventory never carries (measured and fixed mid-grid: one-line
+status mentions losing the bullet-slot competition, 0.49→0.77
+continuity from one prompt rule).
 
 ## §4 Findings
 
@@ -501,6 +519,51 @@ reason §2's discipline exists: on reasoning models, *blank completions
 are the default failure mode of summarization*, and an eval that doesn't
 count them will misattribute everything downstream.
 
+### R9 — On real multi-million-token sessions, memory design separates on
+### what survives, not on retrieval
+
+Three real pi sessions (3,535–5,836 turns, 1–2M tokens each; the
+longest contains 7 real compaction events), capped at a 64K view:
+flat-compact / lcm / conclusions × 3 seeds × 3 sessions, with two
+long-horizon probes built for this regime — *status currency* (topics
+seeded open, flipped resolved/paused at 55–75% depth, uncued "status
+now?") and *next-step* (a `[handoff] Next:` line seeded at 60% depth,
+asked for uncued at the end).
+
+- **Artifact retrieval is solved for every archive-preserving arm:**
+  needles 1.00 and next-step 1.00 across all 27 runs — once the archive
+  is searchable (and the search ranks phrases, see below), *what kind of
+  memory you keep doesn't matter for anything the model can name*.
+- **The separation is inventory:** continuity (uncued "name the topics
+  we've discussed") — conclusions 0.77, lcm 0.02, flat 0.00. The
+  rewrite arms lose topic *names* in their summaries; the append-only
+  store carries them mechanically. Notably lcm's R2 dominance (99%
+  inventory on LoCoMo) does not transfer to corpora 100× longer: its
+  tree still fits in-budget, but its summaries stop enumerating topics
+  when the segment is one-100th of the session.
+- **Currency is structured > rewrite:** conclusions 0.80, lcm 0.64,
+  flat 0.52 — status flips survive a latest-wins dedupe and a small-
+  call tree better than a whole-context rewrite.
+- **Cost inverts at scale:** conclusions answered with 466K tokens vs
+  lcm 665K / flat 623K (−30%) with peak views of 18K vs 45K/57K at
+  equal overhead — the mechanical inventory never grows with session
+  length, so the per-turn view stays flat while rewrite views track the
+  budget.
+
+Three probe-realism failures had to be fixed before any of this was
+measurable, each worth remembering when testing on real transcripts:
+(a) **vocabulary collision** — the seeded `[handoff]` marker collided
+with the project's real HANDOFF.md files and top-5 search truncation
+buried the seeded line below 9 real matches; every arm *correctly*
+answered "no such line" until search ranked exact-phrase matches first.
+(b) **ambiguous probe wording** — "what was the agent about to do
+next?" is answerable from the session's real next-steps; on synthetic
+corpora the seeded line is the only answer, on real ones it is one of
+dozens. (c) **models detect synthetic probes** — one run answered
+"these are all distractor topics injected into the session" (and then
+answered correctly anyway); inventory probes on real corpora measure
+recall-with-skepticism, which is the deployment condition too.
+
 ## §5 What we'd tell an agent builder
 
 Priced recipe, current evidence:
@@ -550,11 +613,24 @@ Priced recipe, current evidence:
    afford: lost-delta (representation) vs wiped-map (flat) vs
    lost-everything (window) — and remember calibration (R4) prevents the
    first two from ever firing.
+8. **For long horizons, make memory append-only and assemble in code.**
+   On real 1–2M-token sessions the memory design's *loss function*
+   decides what survives: a whole-context rewrite loses topic names
+   (continuity 0.00) and status flips (0.52); a summary tree keeps
+   statuses but loses names (0.64 / 0.02); an append-only observation
+   store with mechanical latest-wins assembly keeps both (0.80 / 0.77)
+   at −30% answer tokens and a flat 18K view because the inventory
+   grows with distinct topics, not session length (R9). Its one failure
+   surface is extraction recall — audit what the extractor drops, and
+   mandate one-line status mentions explicitly (one prompt rule moved
+   continuity 0.49→0.77 mid-grid).
 
-The through-line of all seven: **the compaction call is the unit of
+The through-line of all eight: **the compaction call is the unit of
 failure — and of design.** Calibrate it (2), size it small (4, 6),
 state its budget (2), and let the view it maintains ride in the
-effective band (5); everything else is preference.
+effective band (5); everything else is preference. R9 sharpens it one
+step further: the call's *loss function* — what it can never put back —
+sets the ceiling for everything the agent will ever recall unprompted.
 
 ## §6 Threats to validity
 
@@ -568,6 +644,13 @@ effective band (5); everything else is preference.
   truncation physics (R4) is a property of reasoning models as a class
   (and so is its fix), and our single-model design is what makes the
   comparisons causal.
+- **R9 rides on three sessions.** Real multi-million-token transcripts
+  are rare; n=3 sessions × 3 seeds gives n=9 per arm per probe, but the
+  corpus is one project's coding sessions on one model — continuity's
+  0.77-vs-0.00 gap is large enough to survive session-count noise, the
+  currency ordering (0.80/0.64/0.52) is one model's summarization
+  quality, and models that recognize synthetic probes (R9c) may behave
+  differently when the topics are load-bearing rather than distractors.
 - **Judge = solver.** The judge is the same flash; ≥0.5 grading is coarse.
   Systematic bias would have to favor one arm's phrasing to reorder
   results.
@@ -594,7 +677,7 @@ effective band (5); everything else is preference.
 
 ```
 src/context_eval/
-  strategies/        the eight arms (representation.py is the newest)
+  strategies/        the nine arms (conclusions.py is the newest)
   run_eval.py        one leg: corpus × strategies × budgets × samples
   questions.py       needle/continuity seeding; judge grading
   report.py          aggregation: acc/acc*, abst/confab, depth, sanity gates
