@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -233,7 +234,15 @@ class OpenRouterClient:
                     ) from exc
                 if attempt < attempts - 1:
                     # Exponential with jitter, capped: 1s..~45s
-                    time.sleep(min(2.0**attempt, 45.0) * (0.5 + random.random()))
+                    wait = min(2.0**attempt, 45.0) * (0.5 + random.random())
+                    print(
+                        f"[provider] attempt {attempt + 1}/{attempts} failed "
+                        f"({type(exc).__name__}: {str(exc)[:80]}); "
+                        f"retrying in {wait:.0f}s",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    time.sleep(wait)
                 continue
             billed.add(result.usage)
             if (

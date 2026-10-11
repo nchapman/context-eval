@@ -209,6 +209,14 @@ def run_sample(
     engine = _build_engine(
         strategy, store, counter, budget_tokens, questions, llm, system_prompt
     )
+    n_msgs = len(sample.messages)
+    est = engine.counter.count_text(" ".join(m.content for m in sample.messages))
+    print(
+        f"[run] {strategy.name} x {sample.sample_id[:24]}: {n_msgs} msgs, "
+        f"~{est // 1000}K raw tokens, {len(questions)} questions -- replaying",
+        file=sys.stderr,
+        flush=True,
+    )
 
     # --- replay: append, compact, measure -----------------------------------
     try:
@@ -242,7 +250,7 @@ def run_sample(
         return result
 
     # --- question time -------------------------------------------------------
-    for q in questions:
+    for qn, q in enumerate(questions, 1):
         try:
             record = _ask(
                 strategy=strategy,
@@ -252,6 +260,13 @@ def run_sample(
                 max_answer_tokens=max_answer_tokens,
                 temperature=temperature,
                 system_prompt=system_prompt,
+            )
+            print(
+                f"[answer] {qn}/{len(questions)} kind={q.kind:11s} "
+                f"tools={record.tool_calls} "
+                + ("ERROR" if record.error else f"score={record.score:.2f}"),
+                file=sys.stderr,
+                flush=True,
             )
         except Exception as exc:
             # One bad question (provider failure, tool error) must not
@@ -265,6 +280,12 @@ def run_sample(
                 score=0.0,
                 score_method="error",
                 error=str(exc)[:300],
+            )
+            print(
+                f"[answer] {qn}/{len(questions)} kind={q.kind:11s} "
+                f"FAILED: {str(exc)[:120]}",
+                file=sys.stderr,
+                flush=True,
             )
         result.answers.append(record)
         result.usage.add(record.usage)
