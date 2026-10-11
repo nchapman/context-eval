@@ -63,12 +63,25 @@ would most change what the agent does next; fold related details into one \
 line. Prefer open/in-progress state and decisions over historical \
 measurements; a resolved topic needs at most its outcome.
 - State observations in ~20 words; every specific value that gates future \
-work (ids, numbers, versions, paths) stays. Never quote the transcript.
+work (ids, numbers, versions, paths) stays. Never quote the \
+transcript.
 - A one-line topic/status mention by the user is itself a durable \
 observation: record it as its own bullet even when nothing else happened.
 - A topic reappearing later is a new line; statuses supersede by recency.
 {known_topics}SEGMENT:
 {segment}"""
+
+# v3 nudge, from the ledger2 mechanism check on 5a1e: naming continuity
+# worked (147 distinct topics -> 4) but over-consolidated real workstreams
+# (~5 true projects) into two umbrella keys, and the ~20-word rule did not
+# compress (40 tok/record measured). Distinct-workstream naming + a hard
+# 15-word cap.
+_EXTRACT_PROMPT_V3 = _EXTRACT_PROMPT_V2.replace(
+    "create a new name only for genuinely new work.",
+    "distinct workstreams keep their own names (a port, a quant tier, a "
+    "benchmark is its own topic); a new name is wrong only if the line "
+    "would already make sense under a KNOWN TOPIC.",
+).replace("in ~20 words", "in at most 15 words")
 
 _KNOWN_TOPICS = """KNOWN TOPICS so far (reuse these exact names where they fit):
 {topics}
@@ -82,7 +95,7 @@ class SawtoothBack(Strategy):
     """One class, four registered names; ``mode`` is the only difference."""
 
     def __init__(self, mode: str, name: str) -> None:
-        assert mode in ("none", "rewrite", "segments", "ledger", "ledger2")
+        assert mode in ("none", "rewrite", "segments", "ledger", "ledger2", "ledger3")
         self.mode = mode
         self.name = name
         self._concluded_upto = 0  # messages below this are archived + backed
@@ -173,14 +186,15 @@ class SawtoothBack(Strategy):
             return
         # ledger
         for chunk in self._chunks(span):
-            if self.mode == "ledger2":
+            if self.mode in ("ledger2", "ledger3"):
                 inventory = self._inventory()
                 known = _KNOWN_TOPICS.format(
                     topics=", ".join(t for t, _ in sorted(
                         self._topic_latest().items(), key=lambda kv: -kv[1][0]
                     )[:40])
                 ) if inventory else ""
-                prompt = _EXTRACT_PROMPT_V2.format(
+                prompt = (_EXTRACT_PROMPT_V3 if self.mode == "ledger3"
+                          else _EXTRACT_PROMPT_V2).format(
                     segment=chunk, known_topics=known
                 )
             else:
@@ -240,7 +254,7 @@ class SawtoothBack(Strategy):
         if inventory:
             parts.append(inventory)
         used = counter.count_text(inventory) if inventory else 0
-        if self.mode == "ledger2":
+        if self.mode in ("ledger2", "ledger3"):
             by_topic: dict[str, list[_Record]] = {}
             for r in self._records:
                 by_topic.setdefault(r.topic.casefold(), []).append(r)
@@ -362,3 +376,8 @@ class SawtoothLedger(SawtoothBack):
 class SawtoothLedger2(SawtoothBack):
     def __init__(self) -> None:
         super().__init__("ledger2", "sawtooth-ledger2")
+
+
+class SawtoothLedger3(SawtoothBack):
+    def __init__(self) -> None:
+        super().__init__("ledger3", "sawtooth-ledger3")

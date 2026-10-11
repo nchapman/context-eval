@@ -11,6 +11,7 @@ from context_eval.strategies.sawtooth import (
     BACK_TOKENS,
     SawtoothLedger,
     SawtoothLedger2,
+    SawtoothLedger3,
     SawtoothNone,
     SawtoothRewrite,
     SawtoothSegments,
@@ -212,6 +213,27 @@ class TestLedger2:
         states = []
         for s in (SawtoothNone(), SawtoothRewrite(), SawtoothSegments(),
                   SawtoothLedger(), SawtoothLedger2()):
+            eng = engine_for(0, 20000, StubLLM())
+            grow_drive(eng, s, 400)
+            states.append((s._teeth, s._concluded_upto))
+        assert len(set(states)) == 1
+
+
+class TestLedger3:
+    def test_prompt_distinguishes_workstreams_and_caps_words(self):
+        from context_eval.strategies.sawtooth import _EXTRACT_PROMPT_V3
+
+        assert "distinct workstreams keep their own names" in _EXTRACT_PROMPT_V3
+        assert "at most 15 words" in _EXTRACT_PROMPT_V3
+        # v2's wording preserved for its own label's runs
+        from context_eval.strategies.sawtooth import _EXTRACT_PROMPT_V2
+
+        assert "genuinely new work" in _EXTRACT_PROMPT_V2
+
+    def test_cadence_identity_holds_with_ledger3(self):
+        states = []
+        for s in (SawtoothNone(), SawtoothSegments(), SawtoothLedger(),
+                  SawtoothLedger3()):
             eng = engine_for(0, 20000, StubLLM())
             grow_drive(eng, s, 400)
             states.append((s._teeth, s._concluded_upto))

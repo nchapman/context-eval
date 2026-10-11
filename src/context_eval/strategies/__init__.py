@@ -12,6 +12,7 @@ from context_eval.strategies.retrieval import RetrievalOnly
 from context_eval.strategies.sawtooth import (
     SawtoothLedger,
     SawtoothLedger2,
+    SawtoothLedger3,
     SawtoothNone,
     SawtoothRewrite,
     SawtoothSegments,
@@ -33,6 +34,7 @@ REGISTRY = {
     "sawtooth-segments": SawtoothSegments,
     "sawtooth-ledger": SawtoothLedger,
     "sawtooth-ledger2": SawtoothLedger2,
+    "sawtooth-ledger3": SawtoothLedger3,
 }
 
 
