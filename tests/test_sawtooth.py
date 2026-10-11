@@ -12,6 +12,7 @@ from context_eval.strategies.sawtooth import (
     SawtoothLedger,
     SawtoothLedger2,
     SawtoothLedger3,
+    SawtoothLedger4,
     SawtoothNone,
     SawtoothRewrite,
     SawtoothSegments,
@@ -234,6 +235,81 @@ class TestLedger3:
         states = []
         for s in (SawtoothNone(), SawtoothSegments(), SawtoothLedger(),
                   SawtoothLedger3()):
+            eng = engine_for(0, 20000, StubLLM())
+            grow_drive(eng, s, 400)
+            states.append((s._teeth, s._concluded_upto))
+        assert len(set(states)) == 1
+
+
+class TestLedger4:
+    def test_notes_never_move_status(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        lines = [
+            _Ledger4Line(0, "- tq4 | resolved | ships as production tier [§m1]"),
+            _Ledger4Line(1, "- tq4 | note | stale comment remains [§m2]"),
+            _Ledger4Line(2, "- tq4 | note | another janitorial note [§m3]"),
+        ]
+        s = SawtoothLedger4()
+        s._lines = lines
+        assert "tq4|resolved" in s._inventory4()  # note cannot out-vote it
+
+    def test_state_change_lines_move_status(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        s = SawtoothLedger4()
+        s._lines = [
+            _Ledger4Line(0, "- corvid | open | started parser fix [§m1]"),
+            _Ledger4Line(1, "- corvid | note | investigating [§m2]"),
+            _Ledger4Line(2, "- corvid | resolved | parser shipped 2.3.1 [§m3]"),
+            _Ledger4Line(3, "- corvid | note | cleanup later [§m4]"),
+        ]
+        assert "corvid|resolved" in s._inventory4()
+
+    def test_notes_only_topic_defaults_open(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        s = SawtoothLedger4()
+        s._lines = [_Ledger4Line(0, "- amphora | note | reading papers [§m1]")]
+        assert "amphora|open" in s._inventory4()
+
+    def test_ids_and_brackets_stripped(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        ln = _Ledger4Line(0, "- tq4 | note | fused decode at 62% peak [§m1, §m2]")
+        assert "[" not in ln.text and "]" not in ln.text
+        assert "§" not in ln.text
+        assert "62%" in ln.text
+
+    def test_near_duplicates_suppressed_at_append(self):
+        llm = StubLLM(texts=[
+            "- tq4 | resolved | tq4 ships as production KV tier [§m1]",
+            "- tq4 | resolved | tq4 ships as production tier KV [§m2]",
+            "- kvarn | note | port started [§m3]",
+        ])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger4()
+        grow_drive(eng, s, 400)
+        assert len([ln for ln in s._lines if ln.topic == "tq4"]) == 1
+
+    def test_resident_block_is_topic_grouped(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        s = SawtoothLedger4()
+        s._lines = [
+            _Ledger4Line(0, "- tq4 | resolved | ships [§m1]"),
+            _Ledger4Line(1, "- kvarn | note | port started [§m2]"),
+            _Ledger4Line(2, "- tq4 | note | needle 3/3 [§m3]"),
+        ]
+        eng = engine_for(10, 20000, StubLLM())
+        block = s._back_block4(eng)
+        assert "## tq4 — resolved" in block
+        assert "## kvarn — open" in block
+        assert block.index("## tq4") < block.index("needle 3/3")
+
+    def test_cadence_identity_holds_with_ledger4(self):
+        states = []
+        for s in (SawtoothNone(), SawtoothLedger(), SawtoothLedger4()):
             eng = engine_for(0, 20000, StubLLM())
             grow_drive(eng, s, 400)
             states.append((s._teeth, s._concluded_upto))

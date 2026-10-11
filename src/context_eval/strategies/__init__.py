@@ -13,6 +13,7 @@ from context_eval.strategies.sawtooth import (
     SawtoothLedger,
     SawtoothLedger2,
     SawtoothLedger3,
+    SawtoothLedger4,
     SawtoothNone,
     SawtoothRewrite,
     SawtoothSegments,
@@ -35,6 +36,7 @@ REGISTRY = {
     "sawtooth-ledger": SawtoothLedger,
     "sawtooth-ledger2": SawtoothLedger2,
     "sawtooth-ledger3": SawtoothLedger3,
+    "sawtooth-ledger4": SawtoothLedger4,
 }
 
 

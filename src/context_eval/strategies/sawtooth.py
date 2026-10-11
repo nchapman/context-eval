@@ -26,6 +26,8 @@ Varies — the back's content semantics:
 
 from __future__ import annotations
 
+import re
+
 from context_eval.provider import ToolSchema
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
 from context_eval.strategies.conclusions import (
@@ -83,10 +85,74 @@ _EXTRACT_PROMPT_V3 = _EXTRACT_PROMPT_V2.replace(
     "would already make sense under a KNOWN TOPIC.",
 ).replace("in ~20 words", "in at most 15 words")
 
+# v4: status is a deliberate act. v1-v3 let every line vote on topic
+# status by recency; a janitorial note ("stale comment remains") could
+# out-vote "tq4 ships as production tier" three lines up. Notes now carry
+# no status; only explicit state-change lines move the inventory. Resident
+# block is topic-grouped (reads like a changelog, not 30 interleaved
+# rows); near-duplicate restatements are suppressed at append.
+# Add long-line exemptions for the embedded prompts (line-per-rule format
+# mirrors the deriver prompts this ports; wrapping would churn the diff).
+# ruff: noqa: E501
+_EXTRACT_PROMPT_V4 = """You maintain the ledger of an agent session (coding, chat, or mixed), appending observations from one segment.
+Output ONLY a bullet list, one per line, in exactly one of two forms:
+- TOPIC | note | the observation [§<ids>]
+- TOPIC | <status> | what changed and why [§<ids>]
+Rules:
+- The second form is reserved for deliberate state changes (status: open, resolved, paused, in progress). Emit it when a topic's state actually changed in this segment — a decision landed, work shipped, something blocked or set aside — and say what and why. Everything else is the first form: findings, measurements, next steps, agreements. Never stamp a status on a note.
+- TOPIC is one short canonical name per workstream; reuse KNOWN TOPICS verbatim (a port, a tier, a benchmark is its own topic). Never mark an umbrella project resolved because a sub-stream completed.
+- At most ~5 lines per topic in this segment; keep what would most change what the agent does next; fold related details into one line.
+- At most 15 words; keep every value that gates future work (ids, numbers, versions, paths). Never quote the transcript.
+- A one-line topic/status mention by the user is durable: record it — as a state change when it states a status.
+- A topic reappearing in a later segment is a new line.
+{known_topics}SEGMENT:
+{segment}"""
+
+_V4_ROW = re.compile(
+    r"^(?P<topic>[^|]{1,60}?)\s*\|\s*"
+    r"(?P<kind>note|open|resolved|paused|in progress)\s*\|\s*"
+    r"(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+_TRAILING_IDS = re.compile(r"\s*\[[^\]]*\]\s*$")
+
 _KNOWN_TOPICS = """KNOWN TOPICS so far (reuse these exact names where they fit):
 {topics}
 
 """
+
+
+class _Ledger4Line:
+    __slots__ = ("seq", "topic", "kind", "text", "tokens_cache")
+
+    def __init__(self, seq: int, line: str) -> None:
+        self.seq = seq
+        m = _V4_ROW.match(line.strip().lstrip("-*").strip())
+        if m:
+            self.topic = m.group("topic").strip()
+            self.kind = m.group("kind").strip().lower()
+            rest = m.group("rest")
+        else:
+            self.topic, self.kind, rest = "", "note", line.strip()
+        self.text = _IDS.sub("", rest)
+        self.text = re.sub(r"\[\s*,?\s*\]", "", self.text)  # emptied id groups
+        self.text = re.sub(r"\s{2,}", " ", self.text).strip(" ,;")
+        self.tokens_cache = None
+
+    @property
+    def is_state_change(self) -> bool:
+        return self.kind in ("open", "resolved", "paused", "in progress")
+
+    def status(self) -> str:
+        return self.kind
+
+    def tokens(self, counter) -> int:
+        if self.tokens_cache is None:
+            self.tokens_cache = counter.count_text(self.text)
+        return self.tokens_cache
+
+    def wordset(self) -> set[str]:
+        return set(re.findall(r"[a-z0-9]+", self.text.lower()))
 
 _HEADER = "[Session memory — append-only archive is searchable via history_search]"
 
@@ -95,7 +161,7 @@ class SawtoothBack(Strategy):
     """One class, four registered names; ``mode`` is the only difference."""
 
     def __init__(self, mode: str, name: str) -> None:
-        assert mode in ("none", "rewrite", "segments", "ledger", "ledger2", "ledger3")
+        assert mode in ("none", "rewrite", "segments", "ledger", "ledger2", "ledger3", "ledger4")
         self.mode = mode
         self.name = name
         self._concluded_upto = 0  # messages below this are archived + backed
@@ -107,6 +173,7 @@ class SawtoothBack(Strategy):
         self._back_text = ""  # rewrite: the folded doc
         self._segment_summaries: list[str] = []  # segments: appended chunks
         self._records: list[_Record] = []  # ledger: appended observations
+        self._lines: list[_Ledger4Line] = []  # ledger4: typed lines
 
     # -- schedule (mode-independent) ------------------------------------------
 
@@ -184,7 +251,38 @@ class SawtoothBack(Strategy):
                 if summary:
                     self._segment_summaries.append(summary)
             return
-        # ledger
+        # ledger family
+        if self.mode == "ledger4":
+            for chunk in self._chunks(span):
+                inventory = self._inventory4()
+                known = _KNOWN_TOPICS.format(
+                    topics=", ".join(t for t, _ in sorted(
+                        self._topic_state4().items(), key=lambda kv: -kv[1][0]
+                    )[:40])
+                ) if inventory else ""
+                text = self._complete(
+                    engine, _EXTRACT_PROMPT_V4.format(segment=chunk, known_topics=known)
+                )
+                if not text:
+                    continue
+                for line in text.splitlines():
+                    m = _BULLET.match(line.strip())
+                    if not m:
+                        continue
+                    new = _Ledger4Line(len(self._lines), m.group(1))
+                    if not new.topic:
+                        continue
+                    # near-duplicate suppression: same topic, content
+                    # already ~covered by a recent line -> skip the append
+                    words = new.wordset()
+                    if words and any(
+                        len(words & old.wordset()) / max(1, len(words)) >= 0.8
+                        and old.topic == new.topic
+                        for old in self._lines[-60:]
+                    ):
+                        continue
+                    self._lines.append(new)
+            return
         for chunk in self._chunks(span):
             if self.mode in ("ledger2", "ledger3"):
                 inventory = self._inventory()
@@ -226,12 +324,33 @@ class SawtoothBack(Strategy):
         ordered = sorted(latest.items(), key=lambda kv: -kv[1][0])
         return "TOPICS: " + "; ".join(f"{t}|{s}" for t, (_, s) in ordered)
 
+    def _topic_state4(self) -> dict[str, tuple[int, str]]:
+        """Per-topic status: only explicit state-change lines move it; a
+        topic seen only in notes defaults to open."""
+        state: dict[str, tuple[int, str]] = {}
+        for ln in self._lines:
+            key = ln.topic.casefold()
+            if ln.is_state_change:
+                state[key] = (ln.seq, ln.kind)
+            elif key not in state:
+                state[key] = (ln.seq, "open")
+        return state
+
+    def _inventory4(self) -> str:
+        state = self._topic_state4()
+        if not state:
+            return ""
+        ordered = sorted(state.items(), key=lambda kv: -kv[1][0])
+        return "TOPICS: " + "; ".join(f"{t}|{s}" for t, (_, s) in ordered)
+
     # -- view --------------------------------------------------------------------
 
     def _back_block(self, engine: Engine) -> str:
         counter = engine.counter
         if self.mode == "none":
             return ""
+        if self.mode == "ledger4":
+            return self._back_block4(engine)
         if self.mode == "rewrite":
             return f"{_HEADER}\n{self._back_text}" if self._back_text else ""
         if self.mode == "segments":
@@ -287,6 +406,52 @@ class SawtoothBack(Strategy):
         if not parts and not resident:
             return ""
         return f"{_HEADER}\n" + "\n".join([*parts, *reversed(resident)])
+
+    def _back_block4(self, engine: Engine) -> str:
+        """Topic-grouped resident block: TOPICS line, then per topic a
+        status header and its newest notes. Topics ordered by recency of
+        their newest line; lines filled round-robin across topics so no
+        single workstream evicts the rest."""
+        counter = engine.counter
+        state = self._topic_state4()
+        if not state:
+            return ""
+        by_topic: dict[str, list[_Ledger4Line]] = {}
+        for ln in self._lines:
+            by_topic.setdefault(ln.topic.casefold(), []).append(ln)
+        recency = sorted(
+            by_topic, key=lambda t: max(ln.seq for ln in by_topic[t]), reverse=True
+        )
+        waves = [list(reversed(by_topic[t])) for t in recency]  # newest first
+        chosen: list[_Ledger4Line] = []
+        used = counter.count_text(self._inventory4()) + 64  # header allowance
+        while any(waves):
+            progressed = False
+            for wave in waves:
+                if not wave:
+                    continue
+                ln = wave.pop(0)
+                cost = ln.tokens(counter) + 8
+                if used + cost > BACK_TOKENS:
+                    wave.clear()
+                    continue
+                chosen.append(ln)
+                used += cost
+                progressed = True
+            if not progressed:
+                break
+        chosen_ids = {id(ln) for ln in chosen}
+        groups: list[str] = [self._inventory4()]
+        for t in recency:
+            lines = [ln for ln in by_topic[t] if id(ln) in chosen_ids]
+            if not lines:
+                continue
+            name = by_topic[t][0].topic
+            groups.append(
+                f"## {name} — {state[t][1]}\n"
+                + "\n".join(f"- {ln.text}" for ln in lines)
+            )
+        return f"{_HEADER}\n\n" + "\n\n".join(groups)
 
     def assemble(self, engine: Engine) -> list[PromptMessage]:
         view: list[PromptMessage] = []
@@ -381,3 +546,8 @@ class SawtoothLedger2(SawtoothBack):
 class SawtoothLedger3(SawtoothBack):
     def __init__(self) -> None:
         super().__init__("ledger3", "sawtooth-ledger3")
+
+
+class SawtoothLedger4(SawtoothBack):
+    def __init__(self) -> None:
+        super().__init__("ledger4", "sawtooth-ledger4")
