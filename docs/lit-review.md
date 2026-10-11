@@ -352,3 +352,13 @@ across v1-v4 is extraction recall on single-mentioned topics
 (~60-70%/run offline, stochastic) -- a deriver-model property, not a
 prompt property; the search fallback is what converts those misses
 into recoveries on cued probes.
+
+10x-depth boundary (5.5M-token interleaved sessions, ~115 teeth,
+~150 resident topics): every back's uncued enumeration collapses
+(0.0-0.3) while the status index survives and cued recall holds --
+the 4K resident budget saturates at ~90-120 topics (~30-40 tokens
+enumerable per workstream). Neither latest-wins nor status-split
+helps past saturation; hierarchy or a larger back is the lever. This
+is the scaling boundary of the Mem0/Zep comparison: record-level
+consolidation pays off exactly until the record set outgrows the
+resident view.

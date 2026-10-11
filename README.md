@@ -659,6 +659,52 @@ cut leaves resident (3 real sessions × 2 seeds, 13–20 teeth each):
   memory reads as ground truth, the more anything absent from it looks
   like an injection attempt. R9c's stronger form.
 
+### R11 — 10× depth: the 4K back saturates; nobody's continuity survives
+
+To find the scaling boundary of R10, two ~5.5M-token / 45,531-message
+mega-sessions were built ("one project revisited across months": the
+three real sessions interleaved at user-turn chunk boundaries, all
+chunks consumed per cycle with rotating order, statuses time-traveling
+backwards on re-entry — `scripts/mega_sessions.py`). At the 64K tier
+that is ~115 teeth and ~150 resident topics per run vs the 13–20 teeth
+the entire grid had tested:
+
+| back | continuity (a/b) | currency (a/b) | needle | next_step |
+|---|---|---|---|---|
+| none | 0.00 / 0.00 | 0.50 / 0.00 | 1.0 | 1.0 |
+| ledger v1 | 0.00 / 0.30 | 0.50 / 0.10 | 1.0 | 1.0 |
+| ledger4 | 0.00 / 0.00 | 0.40 / 0.20 | 1.0† | 1.0 |
+
+† the one sub-1.0 needle is a refusal ("a line appended inside the
+body of a Rust test function") — the R10 probe-validity signature,
+not a retrieval miss.
+
+- **Uncued enumeration collapses for every back** (grid: 0.82–0.92
+  for the ledgers). The mechanism, read from the predictions: statuses
+  survive — ledger4's currency answer reads six seeded topics with
+  correct statuses straight off the TOPICS index — but the *detail*
+  budget saturates at ~90–120 topics, so topics last mentioned
+  mid-transcript get no group, and the model writes its inventory
+  answer from the detailed groups while treating the 139-entry TOPICS
+  line as an index, not a list to enumerate. v1 fails for its own
+  reason: the newest-records window evicts every mid-transcript topic.
+- **Cued recall degrades but survives** (currency 0.0–0.5, all arms;
+  needle and next_step robust everywhere via the never-cut archive +
+  search).
+- **The overflow invariant is load-bearing and was broken three ways.**
+  The trigger prices the back at BACK_TOKENS so boundaries cannot
+  depend on content; the first mega take died 3-of-6 runs because
+  assembled blocks exceeded that price — ledger4's ~139 group headers
+  outgrew the flat per-line slack (block 4499 vs cap 4096), v1's TOPICS
+  line is uncapped past ~340 topics, and rewrite's fold was unbounded.
+  All fixed with exact accounting (`fe0a18a`); grid-regime output is
+  byte-identical below the caps.
+- **What it would take:** continuity at this depth needs a larger
+  resident budget or hierarchy (sub-workstreams rolling up under
+  umbrellas so the enumeration surface stays ~10), not better
+  extraction — extraction already carried the statuses; the back just
+  cannot show ~150 topics' detail in 4K.
+
 ## §5 What we'd tell an agent builder
 
 Priced recipe, current evidence:
@@ -687,6 +733,15 @@ Priced recipe, current evidence:
    stress once its calls are calibrated (53%→84%, R3) — free insurance
    even under hierarchy. Maintained-memory variants pay their own cost:
    merge-churn regenerates the whole doc 9–10×/run and erodes inventory.
+5. **Size the resident block against concurrent workstream count, not
+   transcript length.** A topic-grouped 4K back held 0.90+ continuity
+   at ~20 teeth but saturates at ~90–120 topics: at ~115 teeth / ~150
+   topics (5.5M tokens), every back's uncued enumeration collapsed to
+   0.0–0.3 while statuses survived in the index and cued recall held
+   via search (R11). Budget ~30–40 resident tokens per workstream you
+   want enumerable, or roll sub-workstreams up under umbrellas so the
+   enumeration surface stays small. Extraction was never the binding
+   constraint — the view was.
 5. **Hold the view in the model's effective band; compact on crossing,
    not on a clock.** Raw context degrades well below nominal — the
    full-context arm scored 0.81 at 128K while compacted views of the
