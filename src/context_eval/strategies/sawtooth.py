@@ -118,6 +118,22 @@ _V4_ROW = re.compile(
 # the shared _IDS is frozen with the v1-v3 arms and must not change
 _IDS_V4 = re.compile(r"§[A-Za-z0-9_-]+(?:\s*,\s*[A-Za-z0-9_-]+)*")
 
+
+def _heartbeat(mode: str, tooth: int, added: int, empty: int) -> None:
+    """One stderr line per extraction call. Long replays otherwise print
+    nothing until the sample completes (an hour+ at mega depth), hiding
+    the documented silent-failure signature: 429 exhaustion / blank
+    completions produce a zero record an hour later instead of a
+    visible stall now."""
+    import sys
+
+    print(
+        f"[{mode}] tooth {tooth}: +{added} lines"
+        + (f" ({empty} EMPTY)" if empty else ""),
+        file=sys.stderr,
+        flush=True,
+    )
+
 _KNOWN_TOPICS = """KNOWN TOPICS so far (reuse these exact names where they fit):
 {topics}
 
@@ -274,9 +290,10 @@ class SawtoothBack(Strategy):
                 text = self._complete(
                     engine, _EXTRACT_PROMPT_V4.format(segment=chunk, known_topics=known)
                 )
+                added, empty = 0, 0
                 if not text:
-                    continue
-                for line in text.splitlines():
+                    empty = 1
+                for line in (text or "").splitlines():
                     m = _BULLET.match(line.strip())
                     if not m:
                         continue
@@ -303,6 +320,8 @@ class SawtoothBack(Strategy):
                         continue
                     new.topic = self._canonical_topic(new.topic)
                     self._lines.append(new)
+                    added += 1
+                _heartbeat(self.mode, self._teeth, added, empty)
             return
         for chunk in self._chunks(span):
             if self.mode in ("ledger2", "ledger3"):
