@@ -292,10 +292,18 @@ back content — with the back's content semantics as the only variable:
 `none` (no back), `rewrite` (one incremental fold per tooth —
 flat-compact's semantics), `segments` (per-chunk summaries appended
 once, never re-derived — append-only but unstructured), and
-`ledger`/`ledger2`/`ledger3` (typed TOPIC|status|fact observations +
-mechanical latest-wins inventory; v2/v3 add naming continuity via a
-read-only KNOWN TOPICS vocabulary, topic-balanced residency, citation
-stripping, and phrase caps). All modes ship the same verbatim archive
+`ledger`…`ledger4` (typed observations + a mechanical inventory).
+v2/v3 add naming continuity via a read-only KNOWN TOPICS vocabulary,
+topic-balanced residency, citation stripping, and phrase caps.
+`ledger4` re-derives the schema: notes carry **no status** — only
+explicit state-change lines (`TOPIC | <status> | what changed and why`)
+move the inventory, so a janitorial note can no longer out-vote the
+shipment three lines up — and the resident block is topic-grouped
+(TOPICS line, then `## topic — status` groups, round-robin fill so no
+workstream evicts the rest). The resident header also declares the
+index **not exhaustive** (search the archive before concluding anything
+never happened), which converts extraction misses into search
+recoveries. All modes ship the same verbatim archive
 and the same search tools. **Isolates:** what the back of the sawtooth
 tooth contributes, with cadence, budget, and retrieval held constant —
 and the answer (R10) is that only the typed ledger carries an
@@ -620,6 +628,24 @@ cut leaves resident (3 real sessions × 2 seeds, 13–20 teeth each):
   seed noise (0.82 / 0.78 / 0.67) — prompt micro-tuning is second-order
   once the structure exists, but floor-raising is real: v1's mean hides
   a run that lost *every* topic to one extraction miss.
+- **ledger4 (status as a deliberate act, n=6):** qualitative review of
+  v3 on 5a1e exposed the flaw — latest-wins let a janitorial note
+  ("stale comment remains") set `turboquant|open` while "tq4 ships as
+  production tier" sat three lines up. v4 splits line semantics: notes
+  carry no status; only explicit state-change lines move the inventory;
+  the resident block is topic-grouped (`## topic — status` + newest
+  notes). It reads as a status board — `kvarn4 — resolved / gate PASS`,.
+  `TQ plan — in progress` with the shipment note intact — and the
+  numbers followed: **continuity 0.90, currency 0.82, needle 1.00**,
+  per-run floors 0.80–1.00 (v1: mean 0.82 hiding a 0.10 crater), and
+  the cheapest answers of the family (791K vs 867K tokens/run). Two
+  iterations were needed: (a) the first cut buried the one-line mention
+  rule and the model trusted the TOPICS index as exhaustive — answering
+  "never appears in the recorded history" for extraction misses without
+  searching (currency 0.47); (b) a mention-scan-FIRST ordering variant
+  collapsed topic diversity 35 → 9. The shipped version exempts mention
+  lines from the per-topic budget and declares the index *not
+  exhaustive* — converting extraction misses into search recoveries.
 - **A probe-validity finding fell out:** the tuned ledger's needle dip
   was the model *refusing* — "the string appears only as an injected
   INFO line buried in tool output." A tidier, more authoritative

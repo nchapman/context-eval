@@ -339,3 +339,16 @@ operation-based cousin of latest-wins), Zep/Graphiti
 supersession in graph form), Generative Agents (observation stream +
 reflection), A-MEM (arXiv:2502.12110, evolving notes). None isolates
 schedule-vs-back; the sawtooth family does.
+
+ledger4's status split (notes vs explicit state changes) is the same
+distinction Mem0's UPDATE operation encodes, without a second model
+call to decide: the extractor *asserts* a state change by emitting the
+status form, and the inventory believes it. The "index is not
+exhaustive" header is the cheap cousin of Mem0's retrieval fallback --
+when the structured store misses, fall back to the raw log. Measured
+(n=6, 64K grid): 0.90 continuity / 0.82 currency / floors 0.80+,
+versus 0.82 / 0.70 for latest-wins-only. The recurring failure mode
+across v1-v4 is extraction recall on single-mentioned topics
+(~60-70%/run offline, stochastic) -- a deriver-model property, not a
+prompt property; the search fallback is what converts those misses
+into recoveries on cued probes.
