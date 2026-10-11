@@ -314,3 +314,95 @@ class TestLedger4:
             grow_drive(eng, s, 400)
             states.append((s._teeth, s._concluded_upto))
         assert len(set(states)) == 1
+
+
+class TestLedger4Regressions:
+    def test_dedupe_cannot_eat_a_state_change(self):
+        # The seeded currency flips are this shape: a note naming the
+        # project, then the status flip restating it. Suppression must
+        # not strand the topic in the note-default "open".
+        llm = StubLLM(texts=[
+            "- corvid | note | admin panel revamp nicknamed corvid [§m1]",
+            "- corvid | paused | admin panel revamp corvid paused [§m2]",
+        ])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger4()
+        grow_drive(eng, s, 400)
+        assert "corvid|paused" in s._inventory4()
+
+    def test_status_transition_with_identical_text_lands(self):
+        llm = StubLLM(texts=[
+            "- tq4 | resolved | tq4 ships as production tier [§m1]",
+            "- tq4 | paused | tq4 ships as production tier [§m2]",
+        ])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger4()
+        grow_drive(eng, s, 400)
+        assert "tq4|paused" in s._inventory4()
+
+    def test_identical_note_restatement_still_suppressed(self):
+        llm = StubLLM(texts=[
+            "- tq4 | note | tq4 ships as production tier [§m1]",
+            "- tq4 | note | tq4 ships as production tier [§m2]",
+        ])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger4()
+        grow_drive(eng, s, 400)
+        assert len([ln for ln in s._lines if ln.topic == "tq4"]) == 1
+
+    def test_unknown_status_word_demotes_to_note_keeps_line(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        ln = _Ledger4Line(0, "- tq4 | shipped | big release landed today [§m1]")
+        assert ln.topic == "tq4"
+        assert not ln.is_state_change
+        assert "shipped" in ln.text and "big release" in ln.text
+
+    def test_malformed_rows_dropped_not_crashed(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        for raw in ("no pipes here", "-  | note | empty topic [§m1]",
+                    "- " + "x" * 80 + " | note | runaway topic [§m2]"):
+            assert _Ledger4Line(0, raw).topic == ""
+
+    def test_three_plus_id_brackets_cleanup(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        ln = _Ledger4Line(0, "- tq4 | note | fused decode at 62% peak [§a, §b, §c]")
+        assert "[" not in ln.text and "]" not in ln.text and "," not in ln.text
+
+    def test_casefold_duplicate_topics_merge_one_group(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        s = SawtoothLedger4()
+        s._lines = [
+            _Ledger4Line(0, "- kvarn | note | port started [§m1]"),
+            _Ledger4Line(1, "- KVarN | resolved | port landed [§m2]"),
+        ]
+        inv = s._inventory4()
+        assert "kvarn|resolved" in inv and inv.count("kvarn") == 1
+        eng = engine_for(10, 20000, StubLLM())
+        block = s._back_block4(eng)
+        assert block.count("## ") == 1  # one merged group
+
+    def test_back_block4_respects_cap_under_pressure(self):
+        from context_eval.strategies.sawtooth import (
+            BACK_TOKENS,
+            _Ledger4Line,
+        )
+        eng = engine_for(10, 20000, StubLLM())
+        counter = eng.counter
+        for label, lines in [
+            ("many topics", [_Ledger4Line(i, f"- topic{i:03d} | note | fact {i} [§m{i}]")
+                             for i in range(200)]),
+            ("few topics many lines", [_Ledger4Line(i, f"- t{i // 100} | note | fact {i} [§m{i}]")
+                                       for i in range(600)]),
+            ("tiny remaining after huge inventory",
+             [_Ledger4Line(0, f"- {n} | note | v [§m1]")
+              for n in (f"awideepname{i:02d}" for i in range(30))]),
+        ]:
+            s = SawtoothLedger4()
+            s._lines = lines
+            block = s._back_block4(eng)
+            cost = counter.count_text(block)
+            assert cost <= BACK_TOKENS + 64, (label, cost)

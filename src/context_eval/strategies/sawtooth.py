@@ -110,11 +110,10 @@ Rules:
 
 _V4_ROW = re.compile(
     r"^(?P<topic>[^|]{1,60}?)\s*\|\s*"
-    r"(?P<kind>note|open|resolved|paused|in progress)\s*\|\s*"
+    r"(?P<kind>[^|]{1,20})\s*\|\s*"
     r"(?P<rest>.*)$",
     re.IGNORECASE,
 )
-_TRAILING_IDS = re.compile(r"\s*\[[^\]]*\]\s*$")
 
 _KNOWN_TOPICS = """KNOWN TOPICS so far (reuse these exact names where they fit):
 {topics}
@@ -134,8 +133,13 @@ class _Ledger4Line:
             rest = m.group("rest")
         else:
             self.topic, self.kind, rest = "", "note", line.strip()
+        if self.kind not in ("note", "open", "resolved", "paused", "in progress"):
+            # off-vocabulary status word ('shipped', 'done', ...): keep the
+            # observation as a note rather than dropping the whole line
+            rest = f"{self.kind}: {rest}"
+            self.kind = "note"
         self.text = _IDS.sub("", rest)
-        self.text = re.sub(r"\[\s*,?\s*\]", "", self.text)  # emptied id groups
+        self.text = re.sub(r"\[[\s,]*\]", "", self.text)  # emptied id groups
         self.text = re.sub(r"\s{2,}", " ", self.text).strip(" ,;")
         self.tokens_cache = None
 
@@ -161,7 +165,7 @@ _HEADER_V4 = ("[Session memory — an append-only index of observed topics. "
 
 
 class SawtoothBack(Strategy):
-    """One class, four registered names; ``mode`` is the only difference."""
+    """One class, seven registered names; ``mode`` is the only difference."""
 
     def __init__(self, mode: str, name: str) -> None:
         assert mode in ("none", "rewrite", "segments", "ledger", "ledger2", "ledger3", "ledger4")
@@ -276,11 +280,20 @@ class SawtoothBack(Strategy):
                     if not new.topic:
                         continue
                     # near-duplicate suppression: same topic, content
-                    # already ~covered by a recent line -> skip the append
+                    # already ~covered by a recent line -> skip the append.
+                    # A status transition is never suppressed (recency and
+                    # wording carry no status signal -- suppressing a flip
+                    # with recycled wording would strand the inventory in
+                    # the stale status); a same-status state change may
+                    # still dedupe against its own restatement.
                     words = new.wordset()
                     if words and any(
                         len(words & old.wordset()) / max(1, len(words)) >= 0.8
                         and old.topic == new.topic
+                        and (
+                            not new.is_state_change
+                            or (old.is_state_change and old.kind == new.kind)
+                        )
                         for old in self._lines[-60:]
                     ):
                         continue
@@ -444,7 +457,15 @@ class SawtoothBack(Strategy):
             if not progressed:
                 break
         chosen_ids = {id(ln) for ln in chosen}
-        groups: list[str] = [self._inventory4()]
+        inventory = self._inventory4()
+        # guard: a runaway TOPICS line must not outgrow the priced back
+        # (the trigger assumes the block fits BACK_TOKENS; overflow at
+        # small budgets kills the run). Drop oldest entries past ~1.5K.
+        entries = inventory.split("; ")
+        while len(entries) > 2 and counter.count_text("; ".join(entries)) > 1536:
+            entries.pop()
+        inventory = "; ".join(entries)
+        groups: list[str] = [inventory]
         for t in recency:
             lines = [ln for ln in by_topic[t] if id(ln) in chosen_ids]
             if not lines:
