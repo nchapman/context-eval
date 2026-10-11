@@ -275,6 +275,11 @@ class SawtoothBack(Strategy):
             prompt = _D1_PROMPT.format(segment="\n".join(parts))
             folded = self._complete(engine, prompt)
             if folded:
+                # the fold must fit the price the trigger pays for it
+                # (BACK_TOKENS); a runaway fold would overflow the view
+                cap = BACK_TOKENS - engine.counter.count_text(_HEADER) - 2
+                while engine.counter.count_text(folded) > cap and len(folded) > 100:
+                    folded = folded[: int(len(folded) * 0.9)].rsplit(".", 1)[0]
                 self._back_text = folded
             return
         if self.mode == "segments":
@@ -430,7 +435,7 @@ class SawtoothBack(Strategy):
             return f"{_HEADER}\n{self._back_text}" if self._back_text else ""
         if self.mode == "segments":
             lines: list[str] = []
-            used = 0
+            used = engine.counter.count_text(_HEADER) + 2
             for s in reversed(self._segment_summaries):
                 cost = counter.count_text(s) + 1
                 if used + cost > BACK_TOKENS and lines:
@@ -445,9 +450,19 @@ class SawtoothBack(Strategy):
         # prolific topic cannot evict every other), global-recency for v1
         parts: list[str] = []
         inventory = self._inventory()
+        # guard: the TOPICS line is uncapped in v1-v3 and overflows the
+        # priced back beyond ~340 topics (live: mega-b died at turn 38717).
+        # Cap entries at ~1.5K tokens; below that (every recorded grid
+        # regime) the block is byte-identical to before.
+        entries = inventory.split("; ")
+        while len(entries) > 2 and counter.count_text("; ".join(entries)) > 1536:
+            entries.pop()
+        inventory = "; ".join(entries)
         if inventory:
             parts.append(inventory)
-        used = counter.count_text(inventory) if inventory else 0
+        used = counter.count_text(_HEADER) + 2 + (
+            counter.count_text(inventory) if inventory else 0
+        )
         if self.mode in ("ledger2", "ledger3"):
             by_topic: dict[str, list[_Record]] = {}
             for r in self._records:
@@ -499,31 +514,49 @@ class SawtoothBack(Strategy):
         )
         waves = [list(reversed(by_topic[t])) for t in recency]  # newest first
         chosen: list[_Ledger4Line] = []
-        used = counter.count_text(self._inventory4()) + 64  # header allowance
+        # guard: a runaway TOPICS line must not outgrow the priced back
+        # (the trigger assumes the block fits BACK_TOKENS; overflow kills
+        # the run). Drop oldest entries past ~1.5K.
+        entries = self._inventory4().split("; ")
+        while len(entries) > 2 and counter.count_text("; ".join(entries)) > 1536:
+            entries.pop()
+        inventory = "; ".join(entries)
+        # Exact accounting: the trigger prices this block at BACK_TOKENS,
+        # so the ASSEMBLED text must fit it -- approximations (flat
+        # per-line slack) let 139 group headers outgrow the slack at mega
+        # depth and overflowed a live run (block 4499 vs cap 4096).
+        used = (
+            counter.count_text(_HEADER_V4)
+            + 2
+            + counter.count_text(inventory)
+            + 2
+        )
+        header_cost: dict[str, int] = {}
+        chosen_topics: set[str] = set()
         while any(waves):
             progressed = False
             for wave in waves:
                 if not wave:
                     continue
                 ln = wave.pop(0)
-                cost = ln.tokens(counter) + 8
+                t = ln.topic.casefold()
+                cost = ln.tokens(counter) + 3  # '- ' prefix + newline
+                if t not in chosen_topics:
+                    if t not in header_cost:
+                        header_cost[t] = counter.count_text(
+                            f"## {by_topic[t][0].topic} — {state[t][1]}"
+                        ) + 3  # newline + blank-line join
+                    cost += header_cost[t]
                 if used + cost > BACK_TOKENS:
                     wave.clear()
                     continue
                 chosen.append(ln)
+                chosen_topics.add(t)
                 used += cost
                 progressed = True
             if not progressed:
                 break
         chosen_ids = {id(ln) for ln in chosen}
-        inventory = self._inventory4()
-        # guard: a runaway TOPICS line must not outgrow the priced back
-        # (the trigger assumes the block fits BACK_TOKENS; overflow at
-        # small budgets kills the run). Drop oldest entries past ~1.5K.
-        entries = inventory.split("; ")
-        while len(entries) > 2 and counter.count_text("; ".join(entries)) > 1536:
-            entries.pop()
-        inventory = "; ".join(entries)
         groups: list[str] = [inventory]
         for t in recency:
             lines = [ln for ln in by_topic[t] if id(ln) in chosen_ids]

@@ -467,3 +467,72 @@ class TestLedger4MegaDepth:
         grow_drive(eng, s, 400)
         assert {"test", "text"} <= {ln.topic for ln in s._lines}
         assert len({t for t in (ln.topic for ln in s._lines) if t != "misc"}) == 2
+
+
+class TestBackBlockHardCap:
+    def test_v4_block_fits_cap_with_dominating_headers(self):
+        # regression (mega grid): 139 topics x 1 short line each -- group
+        # headers outgrow the per-line slack, block overshoots BACK_TOKENS,
+        # trigger fires a turn late -> view overflows budget -> run dies
+        from context_eval.strategies.sawtooth import (
+            BACK_TOKENS,
+            _Ledger4Line,
+        )
+        s = SawtoothLedger4()
+        s._lines = []
+        seq = 0
+        for t in range(139):  # mega-live shape: real topic count, 15-word notes
+            for k in range(3):
+                s._lines.append(_Ledger4Line(
+                    seq, f"- project stream number {t:03d} | in progress | "
+                         f"kernel revision {k} shipped at {t} percent quality gate [§m{seq}]"))
+                seq += 1
+        eng = engine_for(10, 20000, StubLLM())
+        cost = eng.counter.count_text(s._back_block4(eng))
+        assert cost <= BACK_TOKENS, f"block {cost} > cap {BACK_TOKENS}"
+
+    def test_v1_block_fits_cap_with_huge_inventory(self):
+        from context_eval.strategies.conclusions import _Record
+        from context_eval.strategies.sawtooth import BACK_TOKENS
+
+        s = SawtoothLedger()
+        s._records = [
+            _Record(
+                i,
+                f"- a very deep project name {i:03d} |open| "
+                f"shipped kernel revision {i} [§m{i}]",
+            )
+            for i in range(300)
+        ]
+        eng = engine_for(10, 20000, StubLLM())
+        cost = eng.counter.count_text(s._back_block(eng))
+        assert cost <= BACK_TOKENS, f"block {cost} > cap {BACK_TOKENS}"
+
+    def test_all_mode_blocks_fit_cap(self):
+        from context_eval.strategies.sawtooth import BACK_TOKENS
+
+        for strat, filler in [
+            (SawtoothSegments(), lambda i: f"chunk {i} " + "summary text " * 30),
+            (SawtoothLedger2(), lambda i: f"- topic{i:03d} |open| fact {i} [§m{i}]"),
+        ]:
+            if strat.mode == "segments":
+                strat._segment_summaries = [filler(i) for i in range(200)]
+            else:
+                from context_eval.strategies.conclusions import _Record
+                strat._records = [
+                    _Record(i, filler(i)) for i in range(200)
+                ]
+            eng = engine_for(10, 20000, StubLLM())
+            block = strat._back_block(eng)
+            cost = eng.counter.count_text(block)
+            assert cost <= BACK_TOKENS, (strat.mode, cost)
+
+    def test_rewrite_fold_capped_to_back_budget(self):
+        from context_eval.strategies.sawtooth import _HEADER, BACK_TOKENS
+
+        llm = StubLLM(texts=["all workstreams done. " * 400])
+        eng = engine_for(10, 20000, llm)
+        s = SawtoothRewrite()
+        grow_drive(eng, s, 400)
+        cost = eng.counter.count_text(s._back_text)
+        assert cost <= BACK_TOKENS - eng.counter.count_text(_HEADER) - 2
