@@ -47,6 +47,12 @@ LEGS = {
                strategies=8, needles=4, max_q=0),
     "thinking": dict(path="data/thinking_drop.jsonl", budgets=(128_000,), samples=1,
                      strategies=8, needles=4, max_q=0),
+    # 10x-length stress leg: one mega-session (built by scripts/mega_sessions.py),
+    # 3 sawtooth arms, 2 seeds run sequentially outside the suite. NOTE:
+    # the forward model below does not price sawtooth extraction (~raw/(budget-16K)
+    # calls per run, ~110 here) -- add it mentally; it is why this leg needs --allow.
+    "mega": dict(path="data/pi_mega.jsonl", budgets=(64_000,), samples=2,
+                 strategies=3, needles=4, max_q=8),
 }
 
 
