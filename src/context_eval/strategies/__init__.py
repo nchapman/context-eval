@@ -9,6 +9,12 @@ from context_eval.strategies.full_context import FullContext
 from context_eval.strategies.lcm import LCMDagger
 from context_eval.strategies.representation import RepresentationMemory
 from context_eval.strategies.retrieval import RetrievalOnly
+from context_eval.strategies.sawtooth import (
+    SawtoothLedger,
+    SawtoothNone,
+    SawtoothRewrite,
+    SawtoothSegments,
+)
 from context_eval.strategies.sliding_window import SlidingWindow
 
 REGISTRY = {
@@ -21,6 +27,10 @@ REGISTRY = {
     "lcm": LCMDagger,
     "representation": RepresentationMemory,
     "conclusions": ConclusionsMemory,
+    "sawtooth-none": SawtoothNone,
+    "sawtooth-rewrite": SawtoothRewrite,
+    "sawtooth-segments": SawtoothSegments,
+    "sawtooth-ledger": SawtoothLedger,
 }
 
 
