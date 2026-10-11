@@ -34,7 +34,10 @@ Output ONLY a bullet list, one conclusion per line, each exactly:
 Rules: TOPIC is the named project/codename/decision this belongs to \
 (single short name). status is one of open, resolved, paused, in progress. \
 State conclusions; never quote the transcript. Include every specific \
-value (ids, numbers, versions, paths, names). A topic reappearing in a \
+value (ids, numbers, versions, paths, names). A one-line topic/status \
+mention by the user — a named project, codename, or task with its state — \
+is itself a durable observation: record it as its own bullet even when \
+nothing else happened with it. A topic reappearing in a \
 later segment is a new line — statuses supersede by recency. Keep the \
 whole output under ~30 bullets / ~150 words.
 SEGMENT:

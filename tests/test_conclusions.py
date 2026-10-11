@@ -151,3 +151,10 @@ class TestEmptyExtraction:
         hist = next(t for t in s.tools(eng) if t.schema.name == "history_search")
         out = hist.execute({"query": "obs"})
         assert out != "no matches" and "obs" in out
+
+    def test_extract_prompt_covers_one_line_status_mentions(self):
+        """One-liner topic/status mentions must be extracted even on dense
+        segments (5a1e: all 10 seeded markers lost to bullet competition)."""
+        from context_eval.strategies.conclusions import _EXTRACT_PROMPT
+
+        assert "one-line topic/status" in _EXTRACT_PROMPT
