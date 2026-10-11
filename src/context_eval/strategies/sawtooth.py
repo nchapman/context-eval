@@ -99,11 +99,11 @@ Output ONLY a bullet list, one per line, in exactly one of two forms:
 - TOPIC | note | the observation [§<ids>]
 - TOPIC | <status> | what changed and why [§<ids>]
 Rules:
-- The second form is reserved for deliberate state changes (status: open, resolved, paused, in progress). Emit it when a topic's state actually changed in this segment — a decision landed, work shipped, something blocked or set aside — and say what and why. Everything else is the first form: findings, measurements, next steps, agreements. Never stamp a status on a note.
+- The state-change form (second form) is reserved for deliberate state changes (status: open, resolved, paused, in progress). Emit it when a topic's state actually changed in this segment — a decision landed, work shipped, something blocked or set aside — and say what and why. Everything else is the first form: findings, measurements, next steps, agreements. Never stamp a status on a note.
 - TOPIC is one short canonical name per workstream; reuse KNOWN TOPICS verbatim (a port, a tier, a benchmark is its own topic). Never mark an umbrella project resolved because a sub-stream completed.
 - At most ~5 lines per topic in this segment; keep what would most change what the agent does next; fold related details into one line.
+- EXCEPTION, never skipped and exempt from the budget: a one-line topic/status mention by the user (e.g. "the admin revamp is 'corvid', paused") is ALWAYS its own line — TOPIC is the codename; state-change form when a status is stated — even when nothing else happened with the topic.
 - At most 15 words; keep every value that gates future work (ids, numbers, versions, paths). Never quote the transcript.
-- A one-line topic/status mention by the user is durable: record it — as a state change when it states a status.
 - A topic reappearing in a later segment is a new line.
 {known_topics}SEGMENT:
 {segment}"""
@@ -155,6 +155,9 @@ class _Ledger4Line:
         return set(re.findall(r"[a-z0-9]+", self.text.lower()))
 
 _HEADER = "[Session memory — append-only archive is searchable via history_search]"
+_HEADER_V4 = ("[Session memory — an append-only index of observed topics. "
+              "NOT exhaustive: history_search the verbatim archive before "
+              "concluding anything never happened]")
 
 
 class SawtoothBack(Strategy):
@@ -451,7 +454,7 @@ class SawtoothBack(Strategy):
                 f"## {name} — {state[t][1]}\n"
                 + "\n".join(f"- {ln.text}" for ln in lines)
             )
-        return f"{_HEADER}\n\n" + "\n\n".join(groups)
+        return f"{_HEADER_V4}\n\n" + "\n\n".join(groups)
 
     def assemble(self, engine: Engine) -> list[PromptMessage]:
         view: list[PromptMessage] = []
