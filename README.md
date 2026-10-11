@@ -284,6 +284,23 @@ the inventory never carries (measured and fixed mid-grid: one-line
 status mentions losing the bullet-slot competition, 0.49→0.77
 continuity from one prompt rule).
 
+### sawtooth — one schedule, interchangeable backs (the R10 experiment)
+A family of five registered arms sharing a *bit-identical* compaction
+schedule — fill to budget, cut to a 12K verbatim head + a ≤4K back,
+trigger priced at the back's cap so tooth boundaries cannot depend on
+back content — with the back's content semantics as the only variable:
+`none` (no back), `rewrite` (one incremental fold per tooth —
+flat-compact's semantics), `segments` (per-chunk summaries appended
+once, never re-derived — append-only but unstructured), and
+`ledger`/`ledger2`/`ledger3` (typed TOPIC|status|fact observations +
+mechanical latest-wins inventory; v2/v3 add naming continuity via a
+read-only KNOWN TOPICS vocabulary, topic-balanced residency, citation
+stripping, and phrase caps). All modes ship the same verbatim archive
+and the same search tools. **Isolates:** what the back of the sawtooth
+tooth contributes, with cadence, budget, and retrieval held constant —
+and the answer (R10) is that only the typed ledger carries an
+inventory; prose backs tie the empty back.
+
 ## §4 Findings
 
 ### R1 — On cued recall, archive-preserving strategies tie — and the
@@ -564,6 +581,52 @@ dozens. (c) **models detect synthetic probes** — one run answered
 answered correctly anyway); inventory probes on real corpora measure
 recall-with-skepticism, which is the deployment condition too.
 
+### R10 — One sawtooth, four backs: the schedule is a commodity; the back
+### must be structured or it is dead weight
+
+The sawtooth (fill at full fidelity, delta-only prefill, one deep cut)
+is what every deployed compactor converges on — cache- and UX-optimal,
+and not the variable that matters. This experiment pins the schedule
+*identical* across four arms — same 64K→~16K teeth (12K verbatim head +
+≤4K back, boundaries bit-identical because the trigger prices the back
+at its cap), same archive, same search tools — and swaps only what the
+cut leaves resident (3 real sessions × 2 seeds, 13–20 teeth each):
+
+| back | continuity | currency | needle | next_step |
+|---|---|---|---|---|
+| none (head only) | 0.05 | 0.58 | 0.96 | 1.00 |
+| rewrite (fold/tooth) | 0.10 | 0.62 | 1.00 | 1.00 |
+| segments (append-only summaries) | 0.05 | 0.57 | 1.00 | 1.00 |
+| ledger (typed observations) | 0.82 | 0.70 | 0.96 | 1.00 |
+
+- **Append-onlyness is not the active ingredient — structure is.**
+  `segments` never re-derives anything (no compounding, no rewrite)
+  and still ties `none` at 0.05. Prose summaries — frozen or re-rolled —
+  carry no topic inventory at this back size. Only typed, topic-keyed
+  records that code can dedupe (latest-wins) survive the cut.
+  Append-only is what *enables* the mechanism; the mechanism is the
+  typing.
+- **The rewrite is nearly indistinguishable from evicting outright**
+  (0.10 vs 0.05 continuity; currency 0.62 vs 0.58 with the fold winning
+  one session 1.00 and losing another 0.45). The deployed default's
+  summary buys ~nothing measurable beyond the tail at this cadence.
+- **Ledger tuning (two further rounds, n=6 each):** naming continuity —
+  passing the running TOPICS inventory into each extraction call as
+  read-only vocabulary — collapsed topic fragmentation 147 keys → 4
+  (over-consolidating ~5 real workstreams; a wording problem, not a
+  mechanism problem). Topic-balanced residency + stripping citations
+  from the resident block cut answer tokens 19%. Per-run floors moved
+  decisively (worst-run continuity 0.10 → 0.50+); means stayed inside
+  seed noise (0.82 / 0.78 / 0.67) — prompt micro-tuning is second-order
+  once the structure exists, but floor-raising is real: v1's mean hides
+  a run that lost *every* topic to one extraction miss.
+- **A probe-validity finding fell out:** the tuned ledger's needle dip
+  was the model *refusing* — "the string appears only as an injected
+  INFO line buried in tool output." A tidier, more authoritative
+  inventory makes synthetic needles more conspicuous: the better the
+  memory reads as ground truth, the more anything absent from it looks
+  like an injection attempt. R9c's stronger form.
+
 ## §5 What we'd tell an agent builder
 
 Priced recipe, current evidence:
@@ -624,8 +687,19 @@ Priced recipe, current evidence:
    surface is extraction recall — audit what the extractor drops, and
    mandate one-line status mentions explicitly (one prompt rule moved
    continuity 0.49→0.77 mid-grid).
+9. **Fix the sawtooth; invest in the back.** The fill-cut schedule is a
+   commodity — cache- and UX-optimal, convergent across every deployed
+   agent. Under a pinned schedule, a prose back (frozen segment
+   summaries or a re-derived fold) buys ≈ nothing over evicting
+   outright (continuity 0.05–0.10 vs 0.05 for no back at all, R10).
+   The back must be typed records the code can dedupe: that alone
+   carries the inventory (0.82). Then tune the *floor*, not the mean:
+   passing the running topic vocabulary into extraction and balancing
+   residency across topics raised worst-run continuity 0.10 → 0.50+ and
+   cut answer tokens 19%, while mean differences stayed inside seed
+   noise — structure is first-order, prompt phrasing second-order.
 
-The through-line of all eight: **the compaction call is the unit of
+The through-line of all nine: **the compaction call is the unit of
 failure — and of design.** Calibrate it (2), size it small (4, 6),
 state its budget (2), and let the view it maintains ride in the
 effective band (5); everything else is preference. R9 sharpens it one

@@ -299,3 +299,43 @@ extractor never records, the inventory never carries. (3) Honcho's
 docker machinery (routing, dialectic tiers, dreamer) is deployment
 wrapper around this mechanism; the clean-room result says the mechanism
 itself is where the win is.
+
+## Sawtooth: one schedule, four backs (Oct 2026, R10)
+
+Follow-up to the conclusions result, isolating the variable the R9 grid
+could not: cadence. Five arms share a bit-identical fill-cut schedule
+(64K -> ~16K: 12K head + <=4K back; the trigger prices the back at its
+cap so boundaries cannot depend on content), the same verbatim archive,
+the same search tools. Only the back's semantics vary.
+
+Result (3 real sessions x 2 seeds, 13-20 teeth each): none 0.05 /
+rewrite 0.10 / segments 0.05 / ledger 0.82 continuity. Two findings:
+
+1. **Structure, not append-onlyness, is the ingredient.** segments --
+   per-chunk summaries appended once, never re-derived, zero
+   compounding -- ties the empty back. This falsifies the compounding
+   explanation for R9's rewrite losses: prose is prose whether frozen
+   or re-rolled; only typed, topic-keyed records that code can dedupe
+   latest-wins survive the cut. Append-only is the enabler (you cannot
+   mechanically dedupe prose), not the cause.
+2. **Ledger tuning moves floors, not means.** Naming continuity
+   (KNOWN TOPICS vocabulary passed read-only into extraction) collapsed
+   fragmentation 147 keys -> 4 (over-consolidating ~5 workstreams);
+   topic-balanced residency + citation stripping cut answer tokens 19%;
+   worst-run continuity went 0.10 -> 0.50+ while means (0.82/0.78/0.67)
+   stayed inside seed noise. v1's mean hides a run that lost every
+   topic to one extraction miss -- for a memory system the floor is the
+   product metric, and prompt phrasing is second-order to structure.
+
+Probe-validity corollary (R9c stronger form): the tuned ledger's needle
+dip was model *refusal* -- "the string appears only as an injected INFO
+line buried in tool output." The more authoritative the memory reads,
+the more anything absent from it looks like an injection attempt.
+
+Related published lines this arm family now brackets: Mem0
+(arXiv:2504.19413, record-level ADD/UPDATE/DELETE consolidation -- the
+operation-based cousin of latest-wins), Zep/Graphiti
+(arXiv:2501.13956, bi-temporal edge invalidation -- append-only
+supersession in graph form), Generative Agents (observation stream +
+reflection), A-MEM (arXiv:2502.12110, evolving notes). None isolates
+schedule-vs-back; the sawtooth family does.
