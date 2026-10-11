@@ -636,16 +636,22 @@ cut leaves resident (3 real sessions × 2 seeds, 13–20 teeth each):
   the resident block is topic-grouped (`## topic — status` + newest
   notes). It reads as a status board — `kvarn4 — resolved / gate PASS`,
   `TQ plan — in progress` with the shipment note intact — and the
-  numbers followed: **continuity 0.90, currency 0.82, needle 1.00**,
-  per-run floors 0.80–1.00 (v1: mean 0.82 hiding a 0.10 crater), and
-  the cheapest answers of the family (791K vs 867K tokens/run). Two
+  numbers followed: **continuity 0.92, currency 0.87, needle 1.00**,
+  per-run floors 0.80–1.00 (v1: mean 0.82 hiding a 0.10 crater), at
+  the cheapest answers of the family (856K vs 867K tokens/run). Three
   iterations were needed: (a) the first cut buried the one-line mention
   rule and the model trusted the TOPICS index as exhaustive — answering
   "never appears in the recorded history" for extraction misses without
   searching (currency 0.47); (b) a mention-scan-FIRST ordering variant
-  collapsed topic diversity 35 → 9. The shipped version exempts mention
-  lines from the per-topic budget and declares the index *not
-  exhaustive* — converting extraction misses into search recoveries.
+  collapsed topic diversity 35 → 9; (c) a final SME review caught
+  near-duplicate suppression eating status transitions that restated a
+  note's wording — exactly the seeded currency-flip shape — which is
+  why (c) moved currency 0.82 → 0.87 on b021, the flip-heavy session.
+  The shipped version exempts status transitions from dedupe, exempts
+  mention lines from the per-topic budget, demotes off-vocabulary
+  status words to notes instead of dropping the line, and declares the
+  index *not exhaustive* — converting extraction misses into search
+  recoveries.
 - **A probe-validity finding fell out:** the tuned ledger's needle dip
   was the model *refusing* — "the string appears only as an injected
   INFO line buried in tool output." A tidier, more authoritative
