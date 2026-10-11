@@ -634,7 +634,7 @@ cut leaves resident (3 real sessions × 2 seeds, 13–20 teeth each):
   production tier" sat three lines up. v4 splits line semantics: notes
   carry no status; only explicit state-change lines move the inventory;
   the resident block is topic-grouped (`## topic — status` + newest
-  notes). It reads as a status board — `kvarn4 — resolved / gate PASS`,.
+  notes). It reads as a status board — `kvarn4 — resolved / gate PASS`,
   `TQ plan — in progress` with the shipment note intact — and the
   numbers followed: **continuity 0.90, currency 0.82, needle 1.00**,
   per-run floors 0.80–1.00 (v1: mean 0.82 hiding a 0.10 crater), and
