@@ -406,3 +406,64 @@ class TestLedger4Regressions:
             block = s._back_block4(eng)
             cost = counter.count_text(block)
             assert cost <= BACK_TOKENS + 64, (label, cost)
+
+
+class TestLedger4MegaDepth:
+    def test_bold_topic_names_do_not_fork(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        a = _Ledger4Line(0, "- **kvarn** | note | port started [§m1]")
+        b = _Ledger4Line(1, "- kvarn | resolved | port landed [§m2]")
+        assert a.topic == b.topic == "kvarn"
+
+    def test_comma_id_list_fully_stripped(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        ln = _Ledger4Line(0, "- kvarn | note | community ports exist [§m8, 20, 24]")
+        assert "[" not in ln.text and "20" not in ln.text
+        assert "community ports" in ln.text
+
+    def test_case_variant_folds_to_first_seen(self):
+        llm = StubLLM(texts=[
+            "- KVarN | note | port started [§m1]",
+            "- kvarn | resolved | port landed [§m2]",
+        ])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger4()
+        grow_drive(eng, s, 400)
+        assert {ln.topic for ln in s._lines if ln.topic != "misc"} == {"KVarN"}
+
+    def test_known_topics_passes_top100_ranked_by_activity(self):
+        from context_eval.strategies.sawtooth import _Ledger4Line
+
+        s = SawtoothLedger4()
+        s._lines = [
+            _Ledger4Line(0, f"- t{i:03d} | note | v [§m1]") for i in range(120)
+        ] + [_Ledger4Line(120, "- t000 | resolved | late flip [§m2]")]
+        known = s._known_topics_v4()
+        names = known.split("):\n")[1].strip().split(", ")
+        assert len(names) == 100
+        assert names[0] == "t000"  # last activity outranks creation order
+
+    def test_substream_never_absorbs_umbrella(self):
+        llm = StubLLM(texts=[
+            "- kvarn gate | note | gate script drafted [§m1]",
+            "- kvarn | resolved | port landed [§m2]",
+            "- kvarn | note | follow-up audit [§m3]",
+        ])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger4()
+        grow_drive(eng, s, 400)
+        topics = {ln.topic for ln in s._lines}
+        assert "kvarn" in topics and "kvarn gate" in topics
+
+    def test_single_token_names_need_exact_match(self):
+        llm = StubLLM(texts=[
+            "- test | note | suite green [§m1]",
+            "- text | note | grammar masking [§m2]",
+        ])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger4()
+        grow_drive(eng, s, 400)
+        assert {"test", "text"} <= {ln.topic for ln in s._lines}
+        assert len({t for t in (ln.topic for ln in s._lines) if t != "misc"}) == 2

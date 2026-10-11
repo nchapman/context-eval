@@ -114,6 +114,9 @@ _V4_ROW = re.compile(
     r"(?P<rest>.*)$",
     re.IGNORECASE,
 )
+# citation matcher local to v4: eats comma lists ('[§a, 12, b]') whole;
+# the shared _IDS is frozen with the v1-v3 arms and must not change
+_IDS_V4 = re.compile(r"§[A-Za-z0-9_-]+(?:\s*,\s*[A-Za-z0-9_-]+)*")
 
 _KNOWN_TOPICS = """KNOWN TOPICS so far (reuse these exact names where they fit):
 {topics}
@@ -128,7 +131,10 @@ class _Ledger4Line:
         self.seq = seq
         m = _V4_ROW.match(line.strip().lstrip("-*").strip())
         if m:
-            self.topic = m.group("topic").strip()
+            # extractors sometimes bold the name ('- **kvarn** | open | ...');
+            # keep the asterisks out of the topic key or '**' aliases fork
+            # every bolded line into a phantom topic
+            self.topic = m.group("topic").strip().strip("*_").strip()
             self.kind = m.group("kind").strip().lower()
             rest = m.group("rest")
         else:
@@ -138,7 +144,9 @@ class _Ledger4Line:
             # observation as a note rather than dropping the whole line
             rest = f"{self.kind}: {rest}"
             self.kind = "note"
-        self.text = _IDS.sub("", rest)
+        # v4-local id matcher: also eats comma lists ('[§a, b, c]') that the
+        # shared _IDS (frozen with v1-v3) leaves half-stripped
+        self.text = _IDS_V4.sub("", rest)
         self.text = re.sub(r"\[[\s,]*\]", "", self.text)  # emptied id groups
         self.text = re.sub(r"\s{2,}", " ", self.text).strip(" ,;")
         self.tokens_cache = None
@@ -181,6 +189,7 @@ class SawtoothBack(Strategy):
         self._segment_summaries: list[str] = []  # segments: appended chunks
         self._records: list[_Record] = []  # ledger: appended observations
         self._lines: list[_Ledger4Line] = []  # ledger4: typed lines
+        self._topic_canon: dict[str, str] = {}  # ledger4: alias -> canonical
 
     # -- schedule (mode-independent) ------------------------------------------
 
@@ -261,12 +270,7 @@ class SawtoothBack(Strategy):
         # ledger family
         if self.mode == "ledger4":
             for chunk in self._chunks(span):
-                inventory = self._inventory4()
-                known = _KNOWN_TOPICS.format(
-                    topics=", ".join(t for t, _ in sorted(
-                        self._topic_state4().items(), key=lambda kv: -kv[1][0]
-                    )[:40])
-                ) if inventory else ""
+                known = self._known_topics_v4()
                 text = self._complete(
                     engine, _EXTRACT_PROMPT_V4.format(segment=chunk, known_topics=known)
                 )
@@ -297,6 +301,7 @@ class SawtoothBack(Strategy):
                         for old in self._lines[-60:]
                     ):
                         continue
+                    new.topic = self._canonical_topic(new.topic)
                     self._lines.append(new)
             return
         for chunk in self._chunks(span):
@@ -339,6 +344,41 @@ class SawtoothBack(Strategy):
             return ""
         ordered = sorted(latest.items(), key=lambda kv: -kv[1][0])
         return "TOPICS: " + "; ".join(f"{t}|{s}" for t, (_, s) in ordered)
+
+    def _known_topics_v4(self, cap: int = 100) -> str:
+        """Vocabulary block passed to each v4 extraction call. Ranked by
+        last ACTIVITY (any line), not last state change -- a resolved
+        workstream must not sink below recent noise and lose its name,
+        or the extractor coins variants and the inventory forks (166
+        keys for ~30 workstreams at 115 teeth under the old top-40,
+        last-state-change ranking). Cap 100 costs ~500 prompt tokens
+        against a ~16K chunk: cheap insurance for naming continuity.
+        """
+        if not self._lines:
+            return ""
+        last: dict[str, int] = {}
+        display: dict[str, str] = {}
+        for ln in self._lines:
+            key = ln.topic.casefold()
+            last[key] = max(last.get(key, 0), ln.seq)
+            display.setdefault(key, ln.topic)
+        topics = ", ".join(
+            display[k] for k in sorted(last, key=lambda k: -last[k])[:cap]
+        )
+        return _KNOWN_TOPICS.format(topics=topics)
+
+    def _canonical_topic(self, name: str) -> str:
+        """Normalize topic names to one canonical key: case variants and
+        formatting artifacts fold to the first-seen spelling. Word-set
+        extension folding was tried and rejected: no threshold separates
+        an alias ('kvarn port' after 'kvarn') from a sibling sub-stream
+        ('kvarn gate'), and wrongly absorbing the latter is worse than
+        staying split. Naming continuity is the vocabulary's job.
+        """
+        key = name.casefold()
+        if key not in self._topic_canon:
+            self._topic_canon[key] = name
+        return self._topic_canon[key]
 
     def _topic_state4(self) -> dict[str, tuple[int, str]]:
         """Per-topic status: only explicit state-change lines move it; a
