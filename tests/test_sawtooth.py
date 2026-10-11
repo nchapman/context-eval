@@ -10,6 +10,7 @@ from context_eval.strategies.base import Engine
 from context_eval.strategies.sawtooth import (
     BACK_TOKENS,
     SawtoothLedger,
+    SawtoothLedger2,
     SawtoothNone,
     SawtoothRewrite,
     SawtoothSegments,
@@ -162,3 +163,56 @@ class TestToolParity:
         search = next(t for t in s.tools(eng) if t.schema.name == "history_search")
         out = search.execute({"query": "obs 0"})
         assert out != "no matches" and "m00000" in out
+
+
+class TestLedger2:
+    def test_prompt_carries_known_topics_and_weighting(self):
+        from context_eval.strategies.sawtooth import _EXTRACT_PROMPT_V2
+
+        assert "KNOWN TOPIC" in _EXTRACT_PROMPT_V2
+        assert "~5 lines per topic" in _EXTRACT_PROMPT_V2
+        assert "change what the agent does next" in _EXTRACT_PROMPT_V2
+        assert "{known_topics}" in _EXTRACT_PROMPT_V2
+
+    def test_extraction_prompt_includes_existing_topic_names(self):
+        llm = StubLLM(texts=["- corvid | open | x [§m1]",
+                             "- corvid | resolved | y [§m2]"])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger2()
+        grow_drive(eng, s, 400)
+        # from the second tooth on, the prompt names prior topics
+        assert any("KNOWN TOPICS so far" in p and "corvid" in p for p in llm.prompts)
+
+    def test_resident_block_is_topic_balanced(self):
+        # one prolific topic + two quiet topics, interleaved across teeth
+        # (each tooth here is one extraction call)
+        texts = ["- flood | open | line 0 [§m1]", "- flood | open | line 1 [§m1]",
+                 "- quiet-a | open | only [§m2]", "- quiet-b | open | only [§m3]"]
+        texts += [f"- flood | open | line {i} [§m1]" for i in range(2, 10)]
+        llm = StubLLM(texts=texts)
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger2()
+        grow_drive(eng, s, 400)
+        block = s._back_block(eng)
+        lines = [ln for ln in block.splitlines() if ln.startswith("- ")]
+        # round-robin: quiet topics surface in the first wave, not buried
+        # under the flood topic's backlog
+        assert any("quiet-a" in ln for ln in lines[:4]), lines[:4]
+        assert any("quiet-b" in ln for ln in lines[:4]), lines[:4]
+
+    def test_resident_lines_strip_ids(self):
+        llm = StubLLM(texts=["- corvid | open | flaky parser [§m000014]"])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger2()
+        grow_drive(eng, s, 400)
+        block = s._back_block(eng)
+        assert "§" not in block and "corvid" in block
+
+    def test_cadence_identity_holds_with_ledger2(self):
+        states = []
+        for s in (SawtoothNone(), SawtoothRewrite(), SawtoothSegments(),
+                  SawtoothLedger(), SawtoothLedger2()):
+            eng = engine_for(0, 20000, StubLLM())
+            grow_drive(eng, s, 400)
+            states.append((s._teeth, s._concluded_upto))
+        assert len(set(states)) == 1

@@ -31,6 +31,7 @@ from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyS
 from context_eval.strategies.conclusions import (
     _BULLET,
     _EXTRACT_PROMPT,
+    _IDS,
     _FtsIndex,
     _Record,
 )
@@ -43,6 +44,37 @@ HEAD_TOKENS = 12_000  # verbatim head, identical across modes
 BACK_TOKENS = 4_096  # resident memory block cap, identical across modes
 MAX_SPAN_CHARS = 64_000  # per-call extraction/summary chunk (chars)
 
+# Tuned extraction (v2): naming continuity against the running inventory,
+# per-topic budget, and action-weighted phrasing. Targets the qualitative
+# defects measured on the v1 ledger: 119 topic keys for ~4 real projects,
+# 194/342 records on one topic, resolved-heavy history crowding out live
+# state, 38-42 tokens/record.
+_EXTRACT_PROMPT_V2 = """You extract durable observations from one segment of an \
+agent session (coding, chat, or mixed), appending to an existing ledger.
+Output ONLY a bullet list, one observation per line, each exactly:
+- TOPIC | status | the observation [§<ids>]
+Rules:
+- TOPIC must be a project/codename/decision, one short canonical name. \
+Reuse a KNOWN TOPIC name verbatim when the observation belongs to it; \
+create a new name only for genuinely new work.
+- status is one of open, resolved, paused, in progress.
+- At most ~5 lines per topic in this segment: keep the observations that \
+would most change what the agent does next; fold related details into one \
+line. Prefer open/in-progress state and decisions over historical \
+measurements; a resolved topic needs at most its outcome.
+- State observations in ~20 words; every specific value that gates future \
+work (ids, numbers, versions, paths) stays. Never quote the transcript.
+- A one-line topic/status mention by the user is itself a durable \
+observation: record it as its own bullet even when nothing else happened.
+- A topic reappearing later is a new line; statuses supersede by recency.
+{known_topics}SEGMENT:
+{segment}"""
+
+_KNOWN_TOPICS = """KNOWN TOPICS so far (reuse these exact names where they fit):
+{topics}
+
+"""
+
 _HEADER = "[Session memory — append-only archive is searchable via history_search]"
 
 
@@ -50,7 +82,7 @@ class SawtoothBack(Strategy):
     """One class, four registered names; ``mode`` is the only difference."""
 
     def __init__(self, mode: str, name: str) -> None:
-        assert mode in ("none", "rewrite", "segments", "ledger")
+        assert mode in ("none", "rewrite", "segments", "ledger", "ledger2")
         self.mode = mode
         self.name = name
         self._concluded_upto = 0  # messages below this are archived + backed
@@ -141,7 +173,19 @@ class SawtoothBack(Strategy):
             return
         # ledger
         for chunk in self._chunks(span):
-            text = self._complete(engine, _EXTRACT_PROMPT.format(segment=chunk))
+            if self.mode == "ledger2":
+                inventory = self._inventory()
+                known = _KNOWN_TOPICS.format(
+                    topics=", ".join(t for t, _ in sorted(
+                        self._topic_latest().items(), key=lambda kv: -kv[1][0]
+                    )[:40])
+                ) if inventory else ""
+                prompt = _EXTRACT_PROMPT_V2.format(
+                    segment=chunk, known_topics=known
+                )
+            else:
+                prompt = _EXTRACT_PROMPT.format(segment=chunk)
+            text = self._complete(engine, prompt)
             if not text:
                 continue
             for line in text.splitlines():
@@ -149,9 +193,9 @@ class SawtoothBack(Strategy):
                 if m:
                     self._records.append(_Record(len(self._records), m.group(1)))
 
-    # -- inventory (ledger only; deterministic, zero LLM) -----------------------
+    # -- inventory (ledger modes; deterministic, zero LLM) -----------------------
 
-    def _inventory(self) -> str:
+    def _topic_latest(self) -> dict[str, tuple[int, str]]:
         latest: dict[str, tuple[int, str]] = {}
         for r in self._records:
             if not r.topic:
@@ -159,6 +203,10 @@ class SawtoothBack(Strategy):
             key = r.topic.casefold()
             if key not in latest or r.seq > latest[key][0]:
                 latest[key] = (r.seq, r.status)
+        return latest
+
+    def _inventory(self) -> str:
+        latest = self._topic_latest()
         if not latest:
             return ""
         ordered = sorted(latest.items(), key=lambda kv: -kv[1][0])
@@ -184,12 +232,37 @@ class SawtoothBack(Strategy):
             if not lines:
                 return ""
             return f"{_HEADER}\n" + "\n---\n".join(reversed(lines))
-        # ledger: inventory always resident; newest bullets fill the rest
+        # ledger: inventory always resident; bullets fill the rest — topic-
+        # balanced for v2 (round-robin across topics, newest first, so a
+        # prolific topic cannot evict every other), global-recency for v1
         parts: list[str] = []
         inventory = self._inventory()
         if inventory:
             parts.append(inventory)
         used = counter.count_text(inventory) if inventory else 0
+        if self.mode == "ledger2":
+            by_topic: dict[str, list[_Record]] = {}
+            for r in self._records:
+                by_topic.setdefault(r.topic.casefold(), []).append(r)
+            rounds: list[_Record] = []
+            waves = [list(v) for v in by_topic.values()]
+            for wave in waves:
+                wave.reverse()  # newest first within topic
+            while any(waves):
+                for wave in waves:
+                    if wave:
+                        rounds.append(wave.pop(0))
+            chosen: list[_Record] = []
+            for r in rounds:
+                disp = _Record(r.seq, _IDS.sub("", r.raw).strip())
+                cost = disp.tokens(counter) + 8
+                if used + cost > BACK_TOKENS and chosen:
+                    break
+                chosen.append(disp)
+                used += cost
+            if not parts and not chosen:
+                return ""
+            return f"{_HEADER}\n" + "\n".join([*parts, *(f"- {r.raw}" for r in chosen)])
         resident: list[str] = []
         for r in reversed(self._records):
             cost = r.tokens(counter) + 8
@@ -284,3 +357,8 @@ class SawtoothSegments(SawtoothBack):
 class SawtoothLedger(SawtoothBack):
     def __init__(self) -> None:
         super().__init__("ledger", "sawtooth-ledger")
+
+
+class SawtoothLedger2(SawtoothBack):
+    def __init__(self) -> None:
+        super().__init__("ledger2", "sawtooth-ledger2")
