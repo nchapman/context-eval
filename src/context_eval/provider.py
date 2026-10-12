@@ -162,6 +162,7 @@ class OpenRouterClient:
         stream: bool = True,
         provider_only: tuple[str, ...] | None = None,
         allow_fallbacks: bool = DEFAULT_ALLOW_FALLBACKS,
+        provider_offset: int | None = None,
     ) -> None:
         self.model = model
         self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
@@ -172,7 +173,21 @@ class OpenRouterClient:
         # None = auto: every fp8 endpoint, resolved once at construction.
         if provider_only is None:
             provider_only = resolve_provider_tags(model, http_client=http_client)
-        self._provider_only = tuple(provider_only) if provider_only else None
+        tags = tuple(provider_only) if provider_only else None
+        # Sticky per-worker rotation: offset k pins to tags[k % n] only.
+        # OpenRouter's own balancing over an `only` list still funnels
+        # concurrent traffic onto one warm upstream (the baidu 429
+        # incident); one-pinned-provider-per-worker with fallbacks spreads
+        # load deterministically. Offset also reads from the environment
+        # (CONTEXT_EVAL_PROVIDER_OFFSET) so sharded workers rotate with
+        # no code changes.
+        offset = provider_offset
+        if offset is None:
+            env = os.environ.get("CONTEXT_EVAL_PROVIDER_OFFSET")
+            offset = int(env) if env and env.strip().lstrip("-").isdigit() else None
+        if offset is not None and tags and len(tags) > 1:
+            tags = (tags[offset % len(tags)],)
+        self._provider_only = tags
         self._allow_fallbacks = allow_fallbacks
 
     def complete(

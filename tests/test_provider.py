@@ -558,3 +558,34 @@ class TestRequireContent:
         c = client.complete([{"role": "user", "content": "s"}],
                             max_tokens=1024, require_content=True)
         assert c.usage.llm_calls == 1  # only length-truncation escalates
+
+
+class TestProviderRotation:
+    def test_offset_pins_single_rotated_tag(self):
+        from context_eval.provider import OpenRouterClient
+
+        tags = ("a/fp8", "b/fp8", "c/fp8")
+        c0 = OpenRouterClient(provider_only=tags, provider_offset=0)
+        c1 = OpenRouterClient(provider_only=tags, provider_offset=1)
+        c3 = OpenRouterClient(provider_only=tags, provider_offset=3)  # wraps
+        assert c0._provider_only == ("a/fp8",)
+        assert c1._provider_only == ("b/fp8",)
+        assert c3._provider_only == ("a/fp8",)
+
+    def test_no_offset_keeps_full_list(self):
+        from context_eval.provider import OpenRouterClient
+
+        tags = ("a/fp8", "b/fp8")
+        c = OpenRouterClient(provider_only=tags)
+        assert c._provider_only == tags
+
+    def test_env_offset_respected(self, monkeypatch):
+        from context_eval.provider import OpenRouterClient
+
+        monkeypatch.setenv("CONTEXT_EVAL_PROVIDER_OFFSET", "2")
+        tags = ("a/fp8", "b/fp8", "c/fp8")
+        c = OpenRouterClient(provider_only=tags)
+        assert c._provider_only == ("c/fp8",)
+        monkeypatch.delenv("CONTEXT_EVAL_PROVIDER_OFFSET")
+        c2 = OpenRouterClient(provider_only=tags)
+        assert c2._provider_only == tags
