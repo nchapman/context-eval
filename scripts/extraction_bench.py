@@ -32,8 +32,8 @@ from context_eval.provider import OpenRouterClient
 from context_eval.run_eval import build_questions
 from context_eval.strategies.lcm import summary_call_kwargs
 from context_eval.strategies.sawtooth import (
-    _BULLET,
     _EXTRACT_PROMPT_V5,
+    _bullet_or_row,
     _Ledger5Line,
 )
 
@@ -198,10 +198,10 @@ def main() -> None:
         def _parse(text: str) -> list[dict]:
             out = []
             for line in (text or "").splitlines():
-                m = _BULLET.match(line.strip())
-                if not m:
+                row = _bullet_or_row(line)
+                if row is None:
                     continue
-                ln = _Ledger5Line(0, m.group(1))
+                ln = _Ledger5Line(0, row)
                 if ln.umbrella and ln.topic:
                     out.append({"ws": ln.umbrella, "topic": ln.topic,
                                 "kind": ln.kind, "text": ln.text, "ids": ln.ids})

@@ -777,3 +777,34 @@ class TestExtractPrompt:
         # the guard rails survived the edit
         assert "At most 15 words" in _EXTRACT_PROMPT_V5
         assert "Never stamp a status on a note" in _EXTRACT_PROMPT_V5
+
+
+class TestBulletOrRow:
+    """Bare-row format drift: the model sometimes drops the leading '- '
+    (captured verbatim from a bench response — 16 valid rows, zero of
+    them bullets, including a seeded status line). The bullet gate alone
+    silently discards the whole chunk."""
+
+    def test_bare_rows_parse(self):
+        from context_eval.strategies.sawtooth import _bullet_or_row, _Ledger5Line
+
+        drift = (
+            "warp3090/plan | note | vec decode 13.6 t/s vs 34.7 MMA [§m007802]",
+            "bramble | open | investigation started [§m007736]",
+        )
+        for line in drift:
+            row = _bullet_or_row(line)
+            assert row is not None, line
+            ln = _Ledger5Line(0, row)
+            assert ln.umbrella and ln.topic and ln.ids
+
+    def test_bullets_still_parse_and_prose_rejected(self):
+        from context_eval.strategies.sawtooth import _bullet_or_row
+
+        assert _bullet_or_row("- ws/t | note | fine [§m1]") is not None
+        assert _bullet_or_row("* ws/t | note | fine [§m1]") is not None
+        # prose without a row structure must not sneak in
+        assert _bullet_or_row("here are the lines I found") is None
+        assert _bullet_or_row("") is None
+        # pipe-free bare text is not a row
+        assert _bullet_or_row("no pipes at all") is None

@@ -663,10 +663,10 @@ class SawtoothBack(Strategy):
         if not text:
             empty = 1
         for line in (text or "").splitlines():
-            m = _BULLET.match(line.strip())
-            if not m:
+            row = _bullet_or_row(line)
+            if row is None:
                 continue
-            new = _Ledger5Line(len(self._lines5), m.group(1))
+            new = _Ledger5Line(len(self._lines5), row)
             if not new.umbrella or not new.topic:
                 continue
             # coverage accrues BEFORE dedupe: an extraction that only
@@ -993,6 +993,26 @@ _V5_FLAT = re.compile(
     r"^(?P<name>[^|]{1,60}?)\s*\|\s*(?P<kind>[^|]{1,20})\s*\|\s*(?P<rest>.*)$",
     re.IGNORECASE,
 )
+
+
+def _bullet_or_row(line: str) -> str | None:
+    """Line text if it is a bullet OR a bare ledger row.
+
+    The model occasionally drops the leading '- ' marker and emits bare
+    'ws/topic | kind | text [§ids]' rows (observed live-shaped in the
+    extraction bench, e.g. 16-line responses with zero bullets). The
+    bullet gate alone silently discards such chunks; accept the bare row
+    form too — _Ledger5Line already tolerates markers and off-vocabulary
+    kinds.
+    """
+    s = line.strip()
+    m = _BULLET.match(s)
+    if m:
+        return m.group(1)
+    bare = s.lstrip("-*").strip()
+    if s and ("|" in bare) and (_V5_ROW.match(bare) or _V5_FLAT.match(bare)):
+        return bare
+    return None
 
 
 class _Ledger5Line:
