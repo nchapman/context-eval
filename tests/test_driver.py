@@ -357,3 +357,15 @@ class TestRunSample:
 
         assert result.error is not None
         assert "boom" in result.error
+
+
+class TestToolMarkupRecovery:
+    def test_dsml_markup_detected(self):
+        from context_eval.driver import _is_tool_markup
+
+        dsml = "\uff5c\uff5cDSML\uff5c\uff5c"
+        assert _is_tool_markup(f"<{dsml} calls>\n<{dsml} invoke name=\"history_search\">")
+        assert _is_tool_markup("invoke name=\"history_search\"\nparameters: {...}")
+        assert not _is_tool_markup("You raised $5,850 in total.")
+        assert not _is_tool_markup("")
+        assert not _is_tool_markup("Use the <b>bold</b> tag, and <|end|> rarely appears")

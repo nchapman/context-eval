@@ -307,6 +307,24 @@ def run_sample(
     return result
 
 
+def _is_tool_markup(text: str) -> bool:
+    """True when 'text' is leaked tool-call syntax, not an answer.
+
+    Deep in a tool grind the model can emit its invoke blocks as content
+    (DSML markers like '<\uff5c\uff5cDSML\uff5c\uff5c', 'invoke name=...',
+    'parameters') -- measured 3/75 dev25 answers on one question, all
+    arms. Such text scores 0 under any metric while the model's real
+    answer usually exists one re-ask away."""
+    if not text:
+        return False
+    head = text.lstrip()[:400]
+    return (
+        "\uff5c\uff5cDSML\uff5c\uff5c" in head
+        or head.startswith("<|")
+        or ("invoke name=" in head and "parameters" in head)
+    )
+
+
 def _strip_tool_artifacts(wire: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Rebuild an answer wire without tool-call/tool-result messages.
 
@@ -398,15 +416,23 @@ def _ask(
         # non-empty reasoning line, where the concluding answer typically
         # lives; without this ~30% of short answers scored as blank.
         text = completion.text.strip()
+        if _is_tool_markup(text):
+            # Deep in a tool grind the model can emit tool-call syntax as
+            # its content (DSML 'invoke' blocks -- dev25 sweep7: 3/75 answers
+            # across all arms on one question). That is not an answer:
+            # treat it as empty so the nudge/re-ask ladder recovers.
+            text = ""
         if not text and completion.reasoning.strip():
             lines = [ln.strip() for ln in completion.reasoning.splitlines() if ln.strip()]
             text = lines[-1] if lines else ""
+            if _is_tool_markup(text):
+                text = ""
         if not text:
             # A tool-saturated wire with no tools left yields an empty
             # stop completion (measured: finish=stop, 0 text, 0 reasoning).
             # Prefer the model's own narration from the tool rounds; as a
             # last resort force one no-tools nudge call.
-            text = best_text
+            text = best_text if not _is_tool_markup(best_text) else ""
         if not text:
             nudged = llm.complete(
                 [*wire, {"role": "user", "content":
