@@ -72,7 +72,7 @@ def main() -> None:
     pooled_rows: list = []
     pooled_rungs: list = []
     stems = []
-    for f in sorted(glob.glob(args.recording)):
+    for f in sorted(glob.glob(args.recordings)):
         rec = json.loads(Path(f).read_text())
         stem = Path(f).name.split(".")[0]
         stems.append(stem)
@@ -98,6 +98,7 @@ def main() -> None:
     first = json.loads(Path(sorted(glob.glob(args.recordings))[0]).read_text())
     order = [a for a, _ in dial_grid(Ledger5Dials(**first["dials"]))]
     arms = [a for a in order if a in agg]
+    base = agg["baseline"]
 
     lines = [
         "# Dial sweeps -- ledger5 collection",
@@ -108,14 +109,16 @@ def main() -> None:
         "## Dial sensitivity (pooled means over the tooth grid)",
         "",
         fmt_table(
-            ["arm", "compl", "detail tok", "index tok", "sealed ws",
-             "kept", "faded", "min compl"],
+            ["arm", "compl", "d compl", "detail tok", "d detail", "sealed ws",
+             "kept", "d kept", "faded", "min compl"],
             [[a,
               f"{v['mean_completeness']:.3f}",
+              f"{v['mean_completeness'] - base['mean_completeness']:+.3f}",
               f"{v['mean_detail_tokens']:.0f}",
-              f"{v['mean_index_tokens']:.0f}",
+              f"{v['mean_detail_tokens'] - base['mean_detail_tokens']:+.0f}",
               f"{v['mean_sealed_ws']:.1f}",
               f"{v['mean_kept_unsealed']:.2f}",
+              f"{v['mean_kept_unsealed'] - base['mean_kept_unsealed']:+.2f}",
               f"{v['mean_frac_faded']:.2f}",
               f"{v['min_completeness']:.3f}"]
              for a, v in ((a, agg[a]) for a in arms)],

@@ -176,7 +176,7 @@ def dial_grid(recorded: Ledger5Dials) -> list:
     for v in (0.30, 0.70):
         out.append((f"d_note={v}", replace(recorded, d_note=v)))
         out.append((f"d_state={v}", replace(recorded, d_state=v)))
-    for v in (0.15, 0.30, 0.45):
+    for v in (15, 45, 60):
         out.append((f"seal_after_teeth={v}", replace(recorded, seal_after_teeth=v)))
     for v in (8, 25):
         out.append((f"stale_status_teeth={v}", replace(recorded, stale_status_teeth=v)))
