@@ -35,6 +35,19 @@ DEFAULT_PROVIDER_QUANT = "fp8"
 _FALLBACK_PROVIDER_ONLY: tuple[str, ...] = ("baidu/fp8",)
 
 
+# Vetted fp8 upstreams (dev25 sweeps 1-5, per-provider accuracy on identical
+# questions): the "same" fp8 model varies wildly by serving stack --
+# Venice 0.13, DeepInfra 0.57, Makora 0.70 vs AtlasCloud/CoreWeave 0.98 and
+# Parasail/SiliconFlow/StreamLake/BaseTen 1.00. The label is a quantization
+# spec, not a behavior guarantee. Override with CONTEXT_EVAL_PROVIDER_ALLOWLIST
+# (comma-separated tags); empty disables vetting.
+_VETTED_FP8 = (
+    "parasail/fp8", "siliconflow/fp8", "streamlake/fp8", "baseten/fp8",
+    "atlas-cloud/fp8", "coreweave/fp8", "baidu/fp8", "morph/fp8",
+    "novita/fp8", "crusoe/fp8", "inference-net/fp8",
+)
+
+
 def resolve_provider_tags(
     model: str = DEFAULT_MODEL,
     quant: str = DEFAULT_PROVIDER_QUANT,
@@ -57,7 +70,19 @@ def resolve_provider_tags(
                 if e.get("quantization") == quant and e.get("tag")
             }
         )
-        return tuple(tags) or _FALLBACK_PROVIDER_ONLY
+        tags = tuple(tags) or _FALLBACK_PROVIDER_ONLY
+        if quant == "fp8" and tags != _FALLBACK_PROVIDER_ONLY:
+            allow = os.environ.get("CONTEXT_EVAL_PROVIDER_ALLOWLIST")
+            if allow is not None and not allow.strip():
+                pass  # explicitly disabled: keep every fp8 endpoint
+            else:
+                vetted = tuple(
+                    t for t in (allow.split(",") if allow else _VETTED_FP8)
+                    if t in tags
+                )
+                if vetted:
+                    return vetted
+        return tags
     except Exception:
         return _FALLBACK_PROVIDER_ONLY
     finally:

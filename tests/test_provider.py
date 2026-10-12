@@ -479,7 +479,8 @@ class TestProviderResolution:
             api_key="k", stream=False, http_client=_client(handler)
         )
 
-    def test_resolves_all_fp8_tags(self):
+    def test_resolves_vetted_fp8_tags(self):
+        # vetting drops deepinfra (dev25 per-provider acc 0.57) by default
         client = self._endpoints_client(
             {
                 "data": {
@@ -493,7 +494,7 @@ class TestProviderResolution:
                 }
             }
         )
-        assert client._provider_only == ("baidu/fp8", "deepinfra/fp8", "morph/fp8")
+        assert client._provider_only == ("baidu/fp8", "morph/fp8")
 
     def test_unresolvable_falls_back_to_single_pin(self):
         client = self._endpoints_client({"data": {"endpoints": []}})
@@ -649,3 +650,49 @@ def test_unpinned_client_does_not_narrow_on_429(monkeypatch):
         pass
     assert len(calls) >= 2  # the 429 path ran and retried
     assert all(pins == list(tags) for pins in calls)  # never narrowed to one
+
+
+class TestVettedAllowlist:
+    def _fake_endpoints(self, monkeypatch):
+        import context_eval.provider as P
+
+        class _Resp:
+            @staticmethod
+            def json():
+                tags = ["venice/fp8", "deepinfra/fp8", "parasail/fp8", "baseten/fp8"]
+                return {"data": {"endpoints": [
+                    {"tag": t, "quantization": "fp8"} for t in tags
+                ]}}
+
+        class _Client:
+            def get(self, url):
+                return _Resp()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(P.httpx, "Client", lambda **kw: _Client())
+
+    def test_default_vets_to_good_tier(self, monkeypatch):
+        import context_eval.provider as P
+
+        monkeypatch.delenv("CONTEXT_EVAL_PROVIDER_ALLOWLIST", raising=False)
+        self._fake_endpoints(monkeypatch)
+        tags = P.resolve_provider_tags()
+        assert tags == ("parasail/fp8", "baseten/fp8")
+        assert "venice/fp8" not in tags and "deepinfra/fp8" not in tags
+
+    def test_env_overrides_the_tier(self, monkeypatch):
+        import context_eval.provider as P
+
+        monkeypatch.setenv("CONTEXT_EVAL_PROVIDER_ALLOWLIST", "venice/fp8")
+        self._fake_endpoints(monkeypatch)
+        assert P.resolve_provider_tags() == ("venice/fp8",)
+
+    def test_empty_env_disables_vetting(self, monkeypatch):
+        import context_eval.provider as P
+
+        monkeypatch.setenv("CONTEXT_EVAL_PROVIDER_ALLOWLIST", " ")
+        self._fake_endpoints(monkeypatch)
+        tags = P.resolve_provider_tags()
+        assert "venice/fp8" in tags and "deepinfra/fp8" in tags
