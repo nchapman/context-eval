@@ -92,3 +92,71 @@ class TestConvert:
         ):
             v = locomo_score(t, "Business Administration degree", "Business Administration")
             assert 0.0 < v <= 1.0, t
+
+
+class _FakeLLM:
+    def __init__(self, verdict: str) -> None:
+        self.verdict = verdict
+        self.prompts: list[str] = []
+
+    def complete(self, wire, **kw):
+        class _C:
+            text = self.verdict
+
+        self.prompts.append(wire[0]["content"])
+        return _C()
+
+
+class TestJudge:
+    def _q(self, kind="longmemeval", category="multi-session"):
+        from context_eval.questions import Question
+
+        return Question(
+            kind=kind, question="Which song?", answer="Evolution",
+            category=category, meta={},
+        )
+
+    def test_official_judge_yes_no(self):
+        from context_eval.judge import score_question
+
+        llm = _FakeLLM("Yes.")
+        sc = score_question(self._q(), "The song was **Evolution** from the album", llm=llm)
+        assert (sc.value, sc.method) == (1.0, "longmemeval_judge")
+        assert "intermediate steps" in llm.prompts[0]  # multi-session template
+        llm_no = _FakeLLM("NO")
+        sc = score_question(self._q(), "some other song", llm=llm_no)
+        assert (sc.value, sc.method) == (0.0, "longmemeval_judge")
+
+    def test_knowledge_update_uses_update_template(self):
+        from context_eval.judge import score_question
+
+        llm = _FakeLLM("yes")
+        score_question(self._q(category="knowledge-update"), "was X, now Y", llm=llm)
+        assert "updated answer" in llm.prompts[0]
+
+    def test_temporal_uses_core_template(self):
+        from context_eval.judge import score_question
+
+        llm = _FakeLLM("yes")
+        score_question(self._q(category="temporal-reasoning"), "6:45 AM", llm=llm)
+        assert "intermediate steps" not in llm.prompts[0]
+
+    def test_no_llm_falls_back_to_f1(self):
+        from context_eval.judge import score_question
+
+        sc = score_question(self._q(), "Evolution", llm=None)
+        assert sc.method == "longmemeval_f1_fallback" and sc.value == 1.0
+
+    def test_build_questions_emits_longmemeval_kind(self, tmp_path):
+        from context_eval.datasets.base import read_jsonl
+        from context_eval.run_eval import build_questions
+
+        out = tmp_path / "out.jsonl"
+        convert(_mini_raw(tmp_path), out)
+        sample = read_jsonl(out)[0]
+        _, qs = build_questions(
+            sample, needles=0, seed=1, max_q=0, skip_locomo=False
+        )
+        assert len(qs) == 1
+        assert qs[0].kind == "longmemeval"
+        assert qs[0].category in ("multi-session", "temporal-reasoning")

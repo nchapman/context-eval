@@ -95,7 +95,19 @@ def build_questions(
 
         injected, next_q = inject_next_step(injected, seed)
         questions.append(next_q)
-    if not skip_locomo and sample.meta.get("qa"):
+    if not skip_locomo and sample.dataset == "longmemeval" and sample.meta.get("qa"):
+        # official answer-check judge (see judge._score_longmemeval)
+        questions += [
+            Question(
+                kind="longmemeval",
+                question=qa["question"],
+                answer=qa["answer"],
+                category=qa["category_name"],
+                meta={"question_id": sample.sample_id},
+            )
+            for qa in sample.meta["qa"]
+        ]
+    elif not skip_locomo and sample.meta.get("qa"):
         questions += [
             Question(
                 kind="locomo",
