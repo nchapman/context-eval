@@ -219,12 +219,25 @@ class TestTraceQa:
 
 
 class TestShard:
-    def test_shard_slices_every_sample_exactly_once(self, tmp_path, monkeypatch):
-        # shard slices are a partition: union = all, pairwise disjoint
-        from context_eval.run_eval import parse_args
+    def test_shard_slices_every_sample_exactly_once(self):
+        # the property the parallel runner depends on: union = all, disjoint
+        from context_eval.run_eval import shard_samples
 
-        args = parse_args(["--path", str(tmp_path / "x.jsonl"), "--shard", "1/4"])
-        assert args.shard == "1/4"
+        samples = list(range(37))
+        shards = [shard_samples(samples, i, 6) for i in range(6)]
+        union = sorted(x for s in shards for x in s)
+        assert union == samples
+        for a in range(6):
+            for b in range(a + 1, 6):
+                assert not set(shards[a]) & set(shards[b])
+
+    def test_bad_shard_index_raises(self):
+        import pytest
+
+        from context_eval.run_eval import shard_samples
+
+        with pytest.raises(ValueError):
+            shard_samples([1, 2], 4, 4)
 
     def test_bad_shard_rejected(self, monkeypatch):
         from context_eval.run_eval import main

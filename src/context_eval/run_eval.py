@@ -145,6 +145,13 @@ def build_questions(
     return injected, questions
 
 
+def shard_samples(samples: list, i: int, n: int) -> list:
+    """Shard i of n: a partition of samples (union = all, disjoint)."""
+    if not (0 <= i < n):
+        raise ValueError(f"shard index {i} out of range for n={n}")
+    return samples[i::n]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     load_env()
@@ -156,12 +163,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.shard:
         try:
             i, n = (int(x) for x in args.shard.split("/"))
-            if not (0 <= i < n):
-                raise ValueError
+            samples = shard_samples(samples, i, n)
         except ValueError:
             print(f"bad --shard {args.shard!r}; expected i/n with 0 <= i < n", file=sys.stderr)
             return 2
-        samples = samples[i::n]
 
     budgets = [int(b) for b in args.budgets.split(",")]
     strategy_names = [s.strip() for s in args.strategies.split(",") if s.strip()]

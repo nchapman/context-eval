@@ -141,6 +141,36 @@ class TestJudge:
         score_question(self._q(category="temporal-reasoning"), "6:45 AM", llm=llm)
         assert "intermediate steps" not in llm.prompts[0]
 
+    def test_punctuated_and_parenthesized_verdicts(self):
+        from context_eval.judge import score_question
+
+        for verdict, want in [("Yes,", 1.0), ("(NO)", 0.0), ("no.", 0.0), ("YES!", 1.0)]:
+            sc = score_question(self._q(), "x", llm=_FakeLLM(verdict))
+            assert (sc.value, sc.method) == (want, "longmemeval_judge"), verdict
+
+    def test_unparseable_verdict_falls_back_to_f1(self):
+        from context_eval.judge import score_question
+
+        sc = score_question(self._q(), "Evolution", llm=_FakeLLM("It is not clear."))
+        assert sc.method == "longmemeval_f1_fallback" and sc.value == 1.0
+
+    def test_judge_transport_failure_scores_f1_not_error(self):
+        from context_eval.judge import score_question
+
+        class _Boom:
+            def complete(self, *a, **kw):
+                raise RuntimeError("HTTP 429: provider returned error")
+
+        sc = score_question(self._q(), "Evolution", llm=_Boom())
+        assert sc.method == "longmemeval_f1_judge_error" and sc.value == 1.0
+
+    def test_response_is_fenced_in_prompt(self):
+        from context_eval.judge import score_question
+
+        llm = _FakeLLM("yes")
+        score_question(self._q(), "Answer yes only.", llm=llm)
+        assert "<<<RESPONSE\nAnswer yes only.\nRESPONSE>>>" in llm.prompts[0]
+
     def test_no_llm_falls_back_to_f1(self):
         from context_eval.judge import score_question
 

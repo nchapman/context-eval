@@ -447,7 +447,7 @@ def _ask(
         prediction = text
         break
 
-    score: Score = score_question(question, prediction, llm=llm)
+    score: Score = score_question(question, prediction, llm=llm, usage=usage)
     return AnswerRecord(
         question=question.question,
         gold=question.answer,

@@ -20,10 +20,12 @@ n=$1; shift
 out=""
 args=("$@")
 for i in "${!args[@]}"; do
-  if [[ "${args[$i]}" == "--out" ]]; then
-    out="${args[$((i + 1))]}"
-    break
-  fi
+  case "${args[$i]}" in
+    --out)
+      if (( i + 1 < ${#args[@]} )); then out="${args[$((i + 1))]}"; fi
+      ;;
+    --out=*) out="${args[$i]#--out=}" ;;
+  esac
 done
 if [[ -z "$out" ]]; then
   echo "run_sharded: --out is required" >&2
@@ -32,6 +34,10 @@ fi
 
 shard_dir="$(dirname "$out")/shards/$(basename "$out" .jsonl)"
 mkdir -p "$shard_dir"
+# Reruns must replace like run_eval does: stale shard outputs from a
+# previous (possibly different-config or larger-n) run would otherwise be
+# re-merged as if fresh -- silent corruption with a success message.
+rm -f "$shard_dir"/*.jsonl
 
 pids=()
 for ((i = 0; i < n; i++)); do
