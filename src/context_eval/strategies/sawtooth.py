@@ -1422,40 +1422,12 @@ def _l5_arm_uses(rec: dict, dials, recorded) -> list | None:
     )
 
 
-def rerender_from_recording(
-    rec: dict, counter, tooth: int | None = None, dials: Ledger5Dials | None = None
-):
-    """Offline dial-sweep entry point: re-render a recorded ledger.
-
-    `dials` overrides the recorded configuration (pass
-    dataclasses.replace(Ledger5Dials(**rec["dials"]), ...) for partial
-    changes) -- the recording itself is never mutated, so a sweep loop
-    over many dial values shares one recording safely. The eleven
-    render-time dials sweep for real; search_reactivates arms
-    (off / any-hit / quoted-as-recorded) are rebuilt from the recorded
-    search log. reaudit_gap, clock and use_sources are collection-time
-    -- the recording bakes them in -- and overriding them raises rather
-    than silently rendering an unchanged block that a sweep would then
-    misreport as "no effect". Byte-exactness is per LAST render at a
-    given tooth (superseded same-tooth renders are not addressable by
-    tooth alone); synthesized search arms trade that exactness for the
-    source-aware tooth filter (mid-tooth ordering precision is a
-    recorded-arm luxury).
-
-    Roundtrip contract: with tooth=None (the default), this reproduces
-    the last recorded render byte-for-byte -- uses are clipped to the
-    render's uses_upto snapshot, so question-time searches that landed
-    AFTER that render cannot leak into it (tested). With an explicit
-    tooth, ALL recorded uses at or before that tooth count: that is the
-    counterfactual sweep path. Search-arm variants (any-hit, off) are
-    derivable from rec['searches'] + line ids.
-
-    The counter MUST be the one the live run used (run_eval always uses
-    default_counter()) -- a different estimator prices the fill
-    differently and the re-render legitimately diverges (verified the
-    hard way on the mega-a recording: CharEstimator admitted ~20% more
-    detail lines than the DeepSeek tokenizer did).
-    """
+def replay_use_events(rec: dict, tooth: int | None = None,
+                      dials: Ledger5Dials | None = None) -> tuple[int, list]:
+    """The exact (tooth, use_events) a replay consumes -- the single
+    source of truth shared by rerender_from_recording and analysis code
+    (rung age annotation), so derived ages always match the emitted
+    block. Same validation and arm semantics as rerender."""
     dials = dials or Ledger5Dials(**rec["dials"])
     recorded = Ledger5Dials(**rec["dials"])
     for fld in ("reaudit_gap", "clock", "use_sources"):
@@ -1496,6 +1468,45 @@ def rerender_from_recording(
             )
         else:
             use_events = _l5_visible_uses(arm_events, tooth)
+    return tooth, use_events
+
+
+def rerender_from_recording(
+    rec: dict, counter, tooth: int | None = None, dials: Ledger5Dials | None = None
+):
+    """Offline dial-sweep entry point: re-render a recorded ledger.
+
+    `dials` overrides the recorded configuration (pass
+    dataclasses.replace(Ledger5Dials(**rec["dials"]), ...) for partial
+    changes) -- the recording itself is never mutated, so a sweep loop
+    over many dial values shares one recording safely. The eleven
+    render-time dials sweep for real; search_reactivates arms
+    (off / any-hit / quoted-as-recorded) are rebuilt from the recorded
+    search log. reaudit_gap, clock and use_sources are collection-time
+    -- the recording bakes them in -- and overriding them raises rather
+    than silently rendering an unchanged block that a sweep would then
+    misreport as "no effect". Byte-exactness is per LAST render at a
+    given tooth (superseded same-tooth renders are not addressable by
+    tooth alone); synthesized search arms trade that exactness for the
+    source-aware tooth filter (mid-tooth ordering precision is a
+    recorded-arm luxury).
+
+    Roundtrip contract: with tooth=None (the default), this reproduces
+    the last recorded render byte-for-byte -- uses are clipped to the
+    render's uses_upto snapshot, so question-time searches that landed
+    AFTER that render cannot leak into it (tested). With an explicit
+    tooth, ALL recorded uses at or before that tooth count: that is the
+    counterfactual sweep path. Search-arm variants (any-hit, off) are
+    derivable from rec['searches'] + line ids.
+
+    The counter MUST be the one the live run used (run_eval always uses
+    default_counter()) -- a different estimator prices the fill
+    differently and the re-render legitimately diverges (verified the
+    hard way on the mega-a recording: CharEstimator admitted ~20% more
+    detail lines than the DeepSeek tokenizer did).
+    """
+    dials = dials or Ledger5Dials(**rec["dials"])
+    tooth, use_events = replay_use_events(rec, tooth, dials)
     lines = [_Ledger5Line.from_record(d) for d in rec["lines"]]
     uses: dict[str, list[int]] = {}
     for u in use_events:

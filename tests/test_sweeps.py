@@ -52,11 +52,19 @@ class TestParseBlock:
         detail = sum(d for *_, d in view.sections)
         assert view.total_tokens >= detail + view.sealed_tokens
 
-    def test_detail_bullet_accounting(self):
-        block = "## w — open\nt: open\n- aaa\n- bbb\n"
+    def test_detail_bullets_counted(self):
+        """Differential: adding one '- ' bullet grows section detail by
+        exactly the renderer's per-fact cost (count_text('- text') + 1;
+        sawtooth.py fact_cost), and a section with no bullets has zero
+        detail."""
         c = counter()
-        view = parse_block(block, c)
-        assert view.sections[0][4] == c.count_text("- aaa") + 1 + c.count_text("- bbb") + 1
+        base = parse_block("[Session memory - h]\n## w — open\nt: open\n", c)
+        with_bullet = parse_block(
+            "[Session memory - h]\n## w — open\nt: open\n- aaa\n", c
+        )
+        assert base.sections[0][4] == 0
+        delta = with_bullet.sections[0][4] - base.sections[0][4]
+        assert delta == c.count_text("- aaa") + 1
 
 
 class TestRenderMetrics:
@@ -121,20 +129,43 @@ class TestDialGrid:
 
 class TestRealRecording:
     def test_collection_recording_roundtrip_through_harness(self):
-        """The paid collection recordings must flow through the harness:
-        baseline render at the final tooth is byte-exact vs the recording."""
+        """The paid collection recordings must flow through the harness
+        AND roundtrip byte-exactly under the run's own counter
+        (default_counter -- the documented requirement). A different
+        estimator legitimately diverges; that is asserted separately."""
         import glob
         import json
 
         from context_eval.strategies.sawtooth import rerender_from_recording
+        from context_eval.tokens import default_counter
         files = sorted(glob.glob("results/collection/*.recording.json"))
         if not files:
             return  # recordings are run artifacts; skip when absent
         rec = json.loads(open(files[0]).read())
-        c = counter()  # estimator is fine for structural metrics
-        rr, block = rung_rows(rec, c)
-        m = render_metrics(block, rr, c)
-        assert m["completeness"] >= 0.99  # reservation holds at scale
-        # and the byte-exact contract is counter-dependent (documented)
-        exact, _ = rerender_from_recording(rec, CachedCounter(CharEstimator()))
-        assert exact != rec["renders"][-1]["block"]
+        exact, _ = rerender_from_recording(rec, default_counter())
+        assert exact == rec["renders"][-1]["block"]  # the paid contract
+        # estimator counters price the fill differently and diverge --
+        # structural metrics still work, byte-exactness does not
+        est, _ = rerender_from_recording(rec, CachedCounter(CharEstimator()))
+        assert est != rec["renders"][-1]["block"]
+
+    def test_completeness_counts_name_only_faded_topics(self):
+        """Regression (review): under pin_state_status=off, zero-detail
+        topics render 'name · faded — search "name"' with no ': status'.
+        parse_block must count them as visible or completeness drops
+        below 1.0 and fabricates a 'reservation broken' reading."""
+        c = counter()
+        block = (
+            "[Session memory - h]\n## w — open\n"
+            "kept: open\n- kept detail\n"
+            "old · faded — search \"old\"\n"
+        )
+        view = parse_block(block, c)
+        assert "old" in view.sections[0][2]  # visible as a topic
+        rungs = [
+            {"topic": "kept", "ws": "w", "sealed": False, "kept": 1, "act": 0.0},
+            {"topic": "old", "ws": "w", "sealed": False, "kept": 0, "act": -1.0},
+        ]
+        m = render_metrics(block, rungs, c)
+        assert m["completeness"] == 1.0
+        assert m["missing_unsealed"] == []

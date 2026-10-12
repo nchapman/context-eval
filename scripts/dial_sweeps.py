@@ -69,10 +69,14 @@ def main() -> None:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    files = sorted(glob.glob(args.recordings))
+    if not files:
+        raise SystemExit(f"no recordings match {args.recordings!r} -- nothing to sweep")
+
     pooled_rows: list = []
     pooled_rungs: list = []
     stems = []
-    for f in sorted(glob.glob(args.recordings)):
+    for f in files:
         rec = json.loads(Path(f).read_text())
         stem = Path(f).name.split(".")[0]
         stems.append(stem)
@@ -95,7 +99,9 @@ def main() -> None:
 
     # -- pooled report ------------------------------------------------------
     agg = aggregate_sweep(pooled_rows)
-    first = json.loads(Path(sorted(glob.glob(args.recordings))[0]).read_text())
+    if "baseline" not in agg:
+        raise SystemExit("no sweep rows produced (recordings have no renders?)")
+    first = json.loads(Path(files[0]).read_text())
     order = [a for a, _ in dial_grid(Ledger5Dials(**first["dials"]))]
     arms = [a for a in order if a in agg]
     base = agg["baseline"]

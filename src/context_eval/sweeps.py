@@ -18,13 +18,16 @@ from dataclasses import dataclass
 from .strategies.sawtooth import (
     Ledger5Dials,
     _l5_d_for,
-    _l5_visible_uses,
     _Ledger5Line,
+    replay_use_events,
     rerender_from_recording,
 )
 
 _WS_RE = re.compile(r"^## (?P<ws>.+?) — (?P<status>.+)$")
 _TOPIC_RE = re.compile(r"^(?P<topic>.+?): (?P<status>.+)$")
+# zero-detail topics under pin_state_status=False render name-only with
+# the faded marker (no ': status') -- they are visible topics too
+_FADED_RE = re.compile(r'^(?P<topic>.+?) · faded — search ')
 
 
 @dataclass
@@ -36,6 +39,12 @@ class BlockView:
     sealed_names: list
     sealed_tokens: int
     total_tokens: int
+
+    @property
+    def index_tokens(self) -> int:
+        """Everything that is not detail: header, section headers, topic
+        lines, sealed line."""
+        return self.header_tokens + sum(s[3] for s in self.sections) + self.sealed_tokens
 
 
 def parse_block(block: str, counter) -> BlockView:
@@ -57,7 +66,9 @@ def parse_block(block: str, counter) -> BlockView:
             sealed = line
         elif line.startswith("- ") and cur is not None:
             cur["detail"] += counter.count_text(line) + 1  # render fact_cost
-        elif (m := _TOPIC_RE.match(line)) and cur is not None:
+        elif cur is not None and (
+            (m := _TOPIC_RE.match(line)) or (m := _FADED_RE.match(line))
+        ):
             cur["topics"].append(m["topic"])
             cur["index"] += counter.count_text(line)
     sealed_names = []
@@ -119,7 +130,9 @@ def _class_of(newest) -> str:
 
 def rung_rows(rec: dict, counter, dials: Ledger5Dials | None = None, tooth: int | None = None):
     """Re-render and return rung rows annotated with teeth-since-last-use
-    and item class -- the raw material for rung-vs-age curves."""
+    and item class -- the raw material for rung-vs-age curves. Ages are
+    computed from the SAME use stream the render consumed (snapshot-
+    clipped), so the x-axis matches the emitted rung values."""
     block, rungs = rerender_from_recording(rec, counter, tooth=tooth, dials=dials)
     if not rungs:
         return [], block
@@ -127,16 +140,18 @@ def rung_rows(rec: dict, counter, dials: Ledger5Dials | None = None, tooth: int 
     by_key: dict[str, list] = {}
     for ln in lines:
         by_key.setdefault(f"{ln.umbrella}/{ln.topic}".casefold(), []).append(ln)
-    visible_uses = _l5_visible_uses(rec["uses"], rungs[0]["tooth"])
+    _, use_events = replay_use_events(rec, rungs[0]["tooth"], dials)
     last_use: dict[str, int] = {}
-    for u in visible_uses:
+    for u in use_events:
         last_use[u["key"]] = max(last_use.get(u["key"], 0), u["tooth"])
     active_dials = dials or Ledger5Dials(**rec["dials"])
     for r in rungs:
         key = f"{r['ws']}/{r['topic']}".casefold()
         members = by_key.get(key) or []
         newest = max(members, key=lambda m: m.seq, default=None)
-        lu = last_use.get(key) or (min(m.tooth for m in members) if members else 1)
+        # no recorded use: age from the newest fact's birth (the render's
+        # ulist fallback sums fact teeth; the newest is the stand-in)
+        lu = last_use.get(key) or (max(m.tooth for m in members) if members else 1)
         r["age"] = max(1, r["tooth"] - lu)
         r["item_class"] = _class_of(newest)
         r["d"] = _l5_d_for(newest.kind if newest else "note", active_dials)
@@ -200,7 +215,10 @@ def sweep_recording(rec: dict, counter, grid: list | None = None,
     recorded = Ledger5Dials(**rec["dials"])
     grid = grid or dial_grid(recorded)
     teeth = sorted({r["render_tooth"] for r in rec["renders"]})
-    coarse = [t for t in teeth if t % tooth_step == 0] + [teeth[-1]]
+    if not teeth:
+        return []
+    # the final tooth joins the grid but is never duplicated
+    coarse = sorted({t for t in teeth if t % tooth_step == 0} | {teeth[-1]})
     rows = []
     for arm, dials in grid:
         for t in coarse:
