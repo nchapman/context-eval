@@ -369,3 +369,52 @@ class TestToolMarkupRecovery:
         assert not _is_tool_markup("You raised $5,850 in total.")
         assert not _is_tool_markup("")
         assert not _is_tool_markup("Use the <b>bold</b> tag, and <|end|> rarely appears")
+
+
+class TestLadderMarkupExhaustion:
+    """Markup from nudge/reask must fall through, not land as the answer."""
+
+    def test_nudge_markup_falls_through_to_reask(self, monkeypatch):
+        from context_eval import driver
+        from context_eval.provider import Completion
+        from context_eval.questions import Question
+        from context_eval.types import PromptMessage, Role, Usage
+
+        d = "\uff5cDSML\uff5c"
+        dsml = f"<{d} calls>\n<{d} invoke name=\"history_search\">"
+        def comp(text="", reasoning=""):
+            return Completion(text=text, reasoning=reasoning, tool_calls=[],
+                              usage=Usage(), finish_reason="stop", model="m")
+
+        # main answer leaks markup, nudge returns markup in reasoning,
+        # the clean-wire re-ask finally answers
+        seq = [comp(dsml), comp(reasoning=dsml), comp("Two weeks total.")]
+        calls = []
+
+        class FakeLLM:
+            def complete(self, wire, **kw):
+                calls.append(len(wire))
+                return seq[len(calls) - 1]
+
+        class NullStrategy:
+            def assemble(self, engine):
+                return [PromptMessage(role=Role.USER, content="hi")]
+            def tools(self, engine):
+                return []
+
+        class NullStore:
+            def messages(self):
+                return []
+
+        rec = driver._ask(
+            strategy=NullStrategy(),
+            engine=None,
+            question=Question(kind="needle", question="How long?",
+                              answer="Two weeks"),
+            llm=FakeLLM(),
+            max_answer_tokens=64,
+            temperature=0.0,
+            system_prompt="sys",
+        )
+        assert "Two weeks total." in rec.prediction
+        assert "DSML" not in rec.prediction

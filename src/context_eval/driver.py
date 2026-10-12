@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
@@ -318,8 +319,9 @@ def _is_tool_markup(text: str) -> bool:
     if not text:
         return False
     head = text.lstrip()[:400]
+    dsml = re.search(r"[\uff5c|]{1,2}DSML[\uff5c|]{1,2}", head)
     return (
-        "\uff5c\uff5cDSML\uff5c\uff5c" in head
+        bool(dsml)
         or head.startswith("<|")
         or ("invoke name=" in head and "parameters" in head)
     )
@@ -446,6 +448,10 @@ def _ask(
                 nudged.reasoning.strip().splitlines()[-1]
                 if nudged.reasoning.strip() else ""
             )
+            # A DSML-locked wire can leak invoke markup even when nudged
+            # (ledger5 sweep8: both leaks came through exactly here).
+            if _is_tool_markup(text):
+                text = ""
         if not text:
             # A tool-saturated wire can keep returning empty-stop even when
             # nudged (observed deterministically on one pi session across
@@ -461,6 +467,8 @@ def _ask(
                 reask.reasoning.strip().splitlines()[-1]
                 if reask.reasoning.strip() else ""
             )
+            if _is_tool_markup(text):
+                text = ""
         if not text and os.environ.get("CONTEXT_EVAL_DEBUG_ANSWERS"):
             print(
                 f"[answer-debug] q={question.question[:60]!r} "
