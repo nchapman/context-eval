@@ -10,6 +10,7 @@ Two levels, mirroring the theory doc (docs/resident-memory-theory.md):
 import math
 
 from context_eval.budget import Budget
+from context_eval.datasets.base import ReplayMessage, ReplaySample
 from context_eval.store import TranscriptStore
 from context_eval.strategies.base import Engine
 from context_eval.strategies.sawtooth import (
@@ -42,6 +43,9 @@ class StubLLM:
             )
             tool_calls = ()
             usage = Usage(prompt_tokens=50, completion_tokens=20, llm_calls=1)
+            model = "fake-model"
+            provider = "fake-provider"
+            finish_reason = "stop"
 
         return R()
 
@@ -191,12 +195,24 @@ class TestRender:
     def test_sealing_by_disuse_and_status(self):
         lines, uses = self._mini()
         block, _ = render(lines, uses, tooth=40)
-        # corvid/admin: paused + unused 38 teeth -> sealed; name stays listed
+        # paused + 38 teeth disused -> sealed, but the NAME stays listed
         assert "sealed: corvid" in block
         assert "## corvid" not in block
-        # kvarn/port is open-ish (in progress) and used at tooth 2 only:
-        # 38 teeth stale -> stalled, which no longer blocks sealing
-        assert "kvarn" in block  # gate is resolved, port stalled...
+        assert "admin:" not in block  # the topic line collapsed with it
+        # an open/in-progress status BLOCKS sealing while not stale ...
+        lines2 = [L(0, "kvarn", "port", "in progress", "port 40% done", 1)]
+        uses2 = {"kvarn/port": [1]}
+        block2, _ = render(lines2, uses2, tooth=15,
+                           dials=Ledger5Dials(seal_after_teeth=10,
+                                              stale_status_teeth=100))
+        assert "## kvarn" in block2  # discriminating form, not substring
+        assert "sealed" not in block2
+        # ... and stale retirement unblocks it again
+        block3, _ = render(lines2, uses2, tooth=15,
+                           dials=Ledger5Dials(seal_after_teeth=10,
+                                              stale_status_teeth=5))
+        assert "## kvarn" not in block3
+        assert "sealed: kvarn" in block3
 
     def test_stale_open_status_renders_stalled(self):
         lines = [L(0, "kvarn", "port", "in progress", "port 40% done", 1)]
@@ -278,14 +294,23 @@ class TestRender:
         assert "## ws" in block
 
     def test_triage_collapses_lowest_mass_first(self):
-        lines = [
-            L(0, "heavy", "a", "note", "big important work " * 3, 4),
-            L(1, "light", "b", "note", "tiny", 1),
-        ]
-        uses = {"heavy/a": [4], "light/b": [1]}
-        block, _ = render(lines, uses, tooth=5, cap=140)
-        assert counter().count_text(block) <= 140
-        assert "heavy" in block and "light" in block  # both fit: no triage
+        """When the index reservation itself overflows, the lowest-mass
+        workstream collapses into the sealed tier first, and its rung
+        rows must agree with the emitted block."""
+        lines, uses = [], {}
+        seq = 0
+        for ws, last_use in (("heavy-ws", 5), ("mid-ws", 4), ("weak-ws", 1)):
+            for t in range(8):  # fat index: names long, many topics
+                name = f"{ws}-long-topic-name-{t}"
+                lines.append(L(seq, ws, name, "note", "word " * 6, last_use))
+                seq += 1
+                uses[f"{ws}/{name}".casefold()] = [last_use]
+        block, rungs = render(lines, uses, tooth=6, cap=400)
+        assert counter().count_text(block) <= 400
+        assert "## heavy-ws" in block and "## mid-ws" in block  # survivors
+        assert "sealed: weak-ws" in block  # lowest mass collapsed first
+        assert all(r["sealed"] for r in rungs if r["ws"] == "weak-ws")
+        assert not any(r["sealed"] for r in rungs if r["ws"] == "heavy-ws")
 
     def test_sealed_list_trims_to_count(self):
         lines, uses = [], {}
@@ -439,11 +464,95 @@ class TestStrategyWiring:
         rec = s.recording()
         for key in ("version", "dials", "teeth", "lines", "uses", "searches",
                     "chunks", "renders", "rungs", "back_tokens_cap"):
-            assert rec[key] is not None or key == "searches"
+            assert key in rec
         assert rec["teeth"] and rec["lines"] and rec["renders"]
         assert rec["teeth"][-1]["archived_tokens"] > 0
         block, _ = rerender_from_recording(rec, counter())
         assert block == live
+
+    def test_roundtrip_stable_under_post_render_searches(self):
+        """Regression (review): question-time searches append uses AFTER
+        the last recorded render. The render's uses_upto snapshot must
+        keep the roundtrip exact -- and the swept path (explicit tooth,
+        all uses) must differ, proving the snapshot hides data rather
+        than discarding it."""
+        llm = StubLLM(texts=[
+            "- kvarn/port | note | port fresh detail line [§m000001]",
+            "- kvarn/old | note | old aged detail line [§m000051]",
+        ])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger5()
+        s._dials5 = Ledger5Dials(resident_budget=220)  # bind the budget
+        for i in range(300):
+            eng.store.append(Role.TOOL, f"obs {i} " + "x" * 300)
+            s.on_turn(eng)
+        recorded = s._back_block5(eng)  # the render the model answered from
+        # question-time search re-activates the AGED topic, post-render
+        s._note_search("old", [("m000051", "snippet")])
+        rec = s.recording()
+        block, _ = rerender_from_recording(rec, counter())
+        assert block == recorded  # snapshot: the search use cannot leak in
+        # the sweep path sees all uses -- the re-activation changes the view
+        tooth = rec["renders"][-1]["render_tooth"]
+        swept, _ = rerender_from_recording(rec, counter(), tooth=tooth)
+        assert swept != recorded
+
+    def test_sweep_mutates_dials_deterministically(self):
+        """The actual purpose of the substrate: same ledger, new dials,
+        deterministic difference."""
+        texts = [
+            f"- ws{i // 4}/t{i % 4} | note | {'word ' * 12} [§m{i:06d}]"
+            for i in range(12)
+        ]
+        llm = StubLLM(texts=texts)
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger5()
+        for i in range(700):
+            eng.store.append(Role.TOOL, f"obs {i} " + "x" * 300)
+            s.on_turn(eng)
+        s._back_block5(eng)
+        rec = s.recording()
+        recorded = rec["renders"][-1]["block"]
+        assert counter().count_text(recorded) > 260  # fat enough to shrink
+        rec["dials"] = {**rec["dials"], "resident_budget": 260}
+        block, _ = rerender_from_recording(rec, counter())
+        assert block != recorded  # a smaller resident budget re-renders
+        assert counter().count_text(block) <= 260
+
+    def test_run_sample_captures_recording_end_to_end(self):
+        """The capture wiring itself: run_sample with a REAL ledger5 arm
+        must put the recording on the RunResult (the sidecar link)."""
+        from context_eval.driver import run_sample
+        from context_eval.questions import Question
+
+        sample = ReplaySample(
+            dataset="swe", sample_id="ledger5-capture",
+            messages=tuple(
+                ReplayMessage(role=Role.TOOL, content=f"obs {i} " + "x" * 300,
+                              meta={})
+                for i in range(200)
+            ),
+            meta={},
+        )
+        llm = StubLLM(texts=[
+            "- kvarn/gate | open | gate work started [§m000001]",
+            "the answer",
+        ])
+        result = run_sample(
+            strategy=SawtoothLedger5(),
+            sample=sample,
+            questions=[Question(kind="needle", question="What?",
+                                answer="the answer")],
+            llm=llm,
+            counter=CachedCounter(CharEstimator()),
+            budget_tokens=20_000,
+        )
+        assert result.recording is not None
+        assert result.recording["lines"]  # extraction landed and was captured
+        assert result.recording["teeth"]
+        assert result.recording["renders"]
+        row = result.to_json()
+        assert "recording" not in row[:200]  # and stayed out of the row
 
     def test_non_ledger5_recording_is_none(self):
         assert SawtoothNone().recording() is None

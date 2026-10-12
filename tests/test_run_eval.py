@@ -170,9 +170,12 @@ def test_recording_sidecar_written_per_budget(tmp_path, monkeypatch):
     monkeypatch.setattr(re_mod, "run_sample", fake_run_sample)
 
     out = tmp_path / "runs.jsonl"
+    stale = tmp_path / "runs.sliding-window.8000.stale-id.recording.json"
+    stale.write_text('{"stale": true}')  # a previous invocation's leftovers
     rc = re_mod.main(["--path", str(sample), "--strategies", "sliding-window",
                       "--budgets", "8000,16000", "--samples", "1", "--out", str(out)])
     assert rc == 0
+    assert not stale.exists()  # sidecars replace like the row file
     rows = [json.loads(ln) for ln in out.read_text().splitlines()]
     assert len(rows) == 2
     for row in rows:  # the recording never bloats the result row

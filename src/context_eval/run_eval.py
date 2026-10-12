@@ -161,6 +161,15 @@ def main(argv: list[str] | None = None) -> int:
         json.loads(args.trace_qa.read_text()) if args.trace_qa and args.trace_qa.exists() else {}
     )
 
+    # sidecars replace like the row file: a rerun must not leave stale
+    # recordings from a previous invocation globbed in with fresh ones
+    import glob as _glob
+
+    for old in args.out.parent.glob(
+        _glob.escape(args.out.stem) + ".*.recording.json"
+    ):
+        old.unlink()
+
     runs = 0
     grouped: dict[tuple[str, int], list] = defaultdict(list)
     with args.out.open("w") as out_file:  # truncate: reruns replace, never accumulate

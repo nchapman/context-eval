@@ -104,7 +104,14 @@ class RunResult:
         return sum(a.score for a in self.answers) / max(1, len(self.answers))
 
     def to_json(self) -> str:
-        d = asdict(self)
+        # asdict would deep-copy the whole recording before we threw it
+        # away (megabyte-scale per call); blank it for the conversion
+        # instead -- same nested-dataclass semantics, no payload copy.
+        saved, self.recording = self.recording, None
+        try:
+            d = asdict(self)
+        finally:
+            self.recording = saved
         d.pop("recording", None)  # persisted as a sidecar, not in the row
         return json.dumps(d, default=str)
 

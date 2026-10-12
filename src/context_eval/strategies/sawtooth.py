@@ -790,6 +790,7 @@ class SawtoothBack(Strategy):
             self._rec5["renders"].append({
                 "completed_teeth": self._teeth,
                 "render_tooth": self._teeth + 1,
+                "uses_upto": len(self._rec5["uses"]),  # exact-use snapshot
                 "block": block,
             })
             self._rec5["rungs"].extend(rungs)
@@ -1231,6 +1232,7 @@ def render_ledger5(lines, uses, tooth, dials, counter, cap):
         if counter.count_text(base) <= cap or len(active) <= 1:
             break
         victim = min(active, key=lambda w: (w.mass, w.name))
+        victim.sealed = True  # rung rows must match the emitted block
         active.remove(victim)
         sealed.append(victim)
         sealed.sort(key=lambda w: (w.mass, w.name), reverse=True)
@@ -1323,18 +1325,24 @@ def render_ledger5(lines, uses, tooth, dials, counter, cap):
 def rerender_from_recording(rec: dict, counter, tooth: int | None = None):
     """Offline dial-sweep entry point: re-render a recorded ledger.
 
-    Roundtrip contract: with the recorded dials and the last render's
-    tooth, this reproduces the live block byte-for-byte (tested); with
-    new dials it is the sweep. `uses` here mirrors what the live run
-    counted (segment + quoted search); sweep variants (any-hit, off)
-    are derivable from rec['searches'] + line ids.
+    Roundtrip contract: with tooth=None (the default), this reproduces
+    the last recorded render byte-for-byte -- uses are clipped to the
+    render's uses_upto snapshot, so question-time searches that landed
+    AFTER that render cannot leak into it (tested). With an explicit
+    tooth, ALL recorded uses at or before that tooth count: that is the
+    counterfactual sweep path. Search-arm variants (any-hit, off) are
+    derivable from rec['searches'] + line ids.
     """
     dials = Ledger5Dials(**rec["dials"])
+    last_render = rec["renders"][-1] if rec["renders"] else None
     if tooth is None:
-        tooth = rec["renders"][-1]["render_tooth"] if rec["renders"] else 1
+        tooth = last_render["render_tooth"] if last_render else 1
+        use_events = rec["uses"][: last_render["uses_upto"]]
+    else:
+        use_events = rec["uses"]
     lines = [_Ledger5Line.from_record(d) for d in rec["lines"]]
     uses: dict[str, list[int]] = {}
-    for u in rec["uses"]:
+    for u in use_events:
         uses.setdefault(u["key"], []).append(u["tooth"])
     cap = min(dials.resident_budget, rec.get("back_tokens_cap", BACK_TOKENS))
     return render_ledger5(lines, uses, tooth, dials, counter, cap)
