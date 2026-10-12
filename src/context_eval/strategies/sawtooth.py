@@ -927,7 +927,10 @@ class SawtoothLedger4(SawtoothBack):
 #   renderer never feeds the ledger -- the invariant, not a dial.
 # - sealing/staleness are render-time classifications, recomputed pure
 #   from (last use, statuses) every render: no lifecycle state to corrupt,
-#   and a re-mentioned workstream unseals itself for free.
+#   and a re-mentioned workstream unseals itself for free. The sealed
+#   tier renders NAME + LAST STATUS (the workstream-level L2 rung):
+#   names-only made cued-status probes answer 'sealed' instead of the
+#   status (mega-a qual finding).
 # - CLOCK=teeth+virtual-idle and the USE_SOURCES diagnostic arms are
 #   recorded (timestamps, source-tagged uses) but computed offline in the
 #   sweep harness, not live.
@@ -1110,7 +1113,13 @@ def _l5_topic_line(t: _T5Topic, dials: Ledger5Dials, *, has_detail: bool) -> str
 
 
 def _l5_sealed_line(sealed: list, counter, cap: int) -> str:
-    names = [w.name for w in sealed]  # mass-desc: trim from the end
+    """The sealed tier is the workstream-level L2 rung: names PLUS last
+    status, detail surrendered. Names-only was tried live (mega-a qual):
+    cued-status probes ('where does amphora stand?') got answered with
+    the lifecycle word 'sealed' instead of the topic's status -- the
+    index must never answer a status question with memory-tier
+    vocabulary it can cheaply avoid."""
+    names = [f"{w.name} ({w.status})" for w in sealed]  # mass-desc: trim end
     budget = max(40, min(400, cap // 4))
     line = "sealed: " + ", ".join(names)
     while len(names) > 2 and counter.count_text(line) > budget:
@@ -1332,12 +1341,21 @@ def rerender_from_recording(rec: dict, counter, tooth: int | None = None):
     tooth, ALL recorded uses at or before that tooth count: that is the
     counterfactual sweep path. Search-arm variants (any-hit, off) are
     derivable from rec['searches'] + line ids.
+
+    The counter MUST be the one the live run used (run_eval always uses
+    default_counter()) -- a different estimator prices the fill
+    differently and the re-render legitimately diverges (verified the
+    hard way on the mega-a recording: CharEstimator admitted ~20% more
+    detail lines than the DeepSeek tokenizer did).
     """
     dials = Ledger5Dials(**rec["dials"])
     last_render = rec["renders"][-1] if rec["renders"] else None
     if tooth is None:
         tooth = last_render["render_tooth"] if last_render else 1
-        use_events = rec["uses"][: last_render["uses_upto"]]
+        # pre-snapshot recordings (before uses_upto existed) fall back to
+        # all uses -- the old, slightly-looser semantics
+        upto = last_render.get("uses_upto", len(rec["uses"])) if last_render else 0
+        use_events = rec["uses"][:upto]
     else:
         use_events = rec["uses"]
     lines = [_Ledger5Line.from_record(d) for d in rec["lines"]]

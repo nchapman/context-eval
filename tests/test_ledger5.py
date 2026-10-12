@@ -323,6 +323,21 @@ class TestRender:
         assert "earlier)" in block  # overflow trims to "+N earlier"
         assert counter().count_text(block) <= 400
 
+    def test_sealed_line_carries_last_status(self):
+        """mega-a qual finding: a names-only sealed line made cued-status
+        probes answer 'sealed' (memory-tier vocabulary) instead of the
+        topic's status. The sealed tier is the workstream-level L2 rung:
+        name + last status, detail surrendered."""
+        lines = [
+            L(0, "corvid", "admin", "paused", "revamp parked", 1),
+            L(1, "amphora", "queue", "resolved", "rework shipped", 1),
+        ]
+        uses = {"corvid/admin": [1], "amphora/queue": [1]}
+        block, _ = render(lines, uses, tooth=40)
+        assert "sealed: corvid (paused)" in block
+        assert "amphora (resolved)" in block
+        assert "- revamp parked" not in block  # detail is still surrendered
+
     def test_remention_unseals(self):
         """Sealing is a pure render-time classification: a new use at a
         late tooth brings the workstream back to the active index."""

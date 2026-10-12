@@ -240,14 +240,19 @@ Birth-time errors must not be frozen forever:
 **Sealing predicate (defined).** A workstream seals when, for
 `SEAL_AFTER_TEETH` consecutive teeth: no exogenous use of any member
 topic, AND no member topic holds an open/in-progress status (after stale
-retirement, below). The sealed tier renders as a **name list** ("sealed:
-corvid, amphora, tq4-soak"), not a bare count — identity is the
-slowest-decaying band and names are cheap, so sealed workstreams stay
-enumerable and searchable; they surrender only status and detail. "What
-are we working on" legitimately excludes them; "what did we work on" still
-gets them by name. When the sealed name list itself exceeds the index
-budget, lowest-mass sealed workstreams (mass = sum of member activations)
-collapse first to "+N earlier" — those are recoverable only by search.
+retirement, below). The sealed tier renders as a **name + last-status
+list** ("sealed: corvid (resolved), amphora (paused)"), not a bare
+count — the workstream-level equivalent of the L2 rung: identity is the
+slowest-decaying band and statuses are the last thing forgotten, so a
+sealed workstream stays enumerable and status-readable while
+surrendering only detail. (v2.2 amendment, from the mega-a qual
+finding: a names-only sealed line made cued-status probes answer
+"sealed" — memory-tier vocabulary — instead of the status, which the
+index can cheaply carry.) "What are we working on" legitimately
+excludes sealed work; "what did we work on" still gets them by name.
+When the sealed list itself exceeds the index budget, lowest-mass
+sealed workstreams (mass = sum of member activations) collapse first
+to "+N earlier" — those are recoverable only by search.
 
 **Stale-status retirement.** An open/in-progress status with no exogenous
 use for `STALE_STATUS_TEETH` teeth demotes to "stalled" (still name+status,

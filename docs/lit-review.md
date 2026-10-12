@@ -388,3 +388,19 @@ positions, per-render blocks and rung trajectories) is the dial-sweep
 substrate: rerender_from_recording() reproduces live blocks byte-for-byte
 (tested), which is the contract that makes "collect once, sweep many"
 sound.
+
+mega-a qual read (153 teeth, single run, seed 1): continuity 0.70 at a
+depth where every flat-grain arm scored 0.0-0.3 -- the partition
+prediction (>=0.7) met at n=1, and the residual misses are birth-time
+extraction recall (3/10 seeded topics never became workstreams; their
+naming/status lines were extracted under other topics or missed), not
+index saturation. The recall boundary (~60-70%, unchanged from
+ledger4) is now the limiter for uncued enumeration -- the theory's
+stated boundary, with search as the cued-recall recovery route.
+Currency 0.00 exposed a design bug, fixed same day: the sealed tier
+rendered names only, so cued-status probes answered "sealed" instead
+of the status; the sealed line now carries name + last status (the
+workstream-level L2 rung). Probe reactivity observed live exactly as
+predicted: the currency probe's 34 searches re-activated five sealed
+workstreams, unsealing them for the following question -- offline
+scoring or probe-order randomization stays mandatory for collection.
