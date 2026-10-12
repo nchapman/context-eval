@@ -37,7 +37,7 @@ mkdir -p "$shard_dir"
 # Reruns must replace like run_eval does: stale shard outputs from a
 # previous (possibly different-config or larger-n) run would otherwise be
 # re-merged as if fresh -- silent corruption with a success message.
-rm -f "$shard_dir"/*.jsonl
+rm -f "$shard_dir"/*.jsonl "$shard_dir"/*.recording.json
 
 pids=()
 for ((i = 0; i < n; i++)); do
@@ -53,9 +53,20 @@ for p in "${pids[@]}"; do
   wait "$p" || fail=1
 done
 
-cat "$shard_dir"/*."jsonl" > "$out"
-runs=$(wc -l < "$out")
-echo "merged $runs runs from $n shards -> $out"
+# Merge only what exists (a fully-dead sweep must still reach the
+# failure report below, not die at cat under set -e).
+shopt -s nullglob
+files=("$shard_dir"/*.jsonl)
+shopt -u nullglob
+if ((${#files[@]})); then
+  cat "${files[@]}" > "$out"
+  runs=$(wc -l < "$out")
+  echo "merged $runs runs from $n shards -> $out"
+else
+  echo "no shard outputs produced" >&2
+  fail=1
+  out=""
+fi
 if [[ $fail -ne 0 ]]; then
   echo "WARNING: at least one shard failed; check $shard_dir/*.log" >&2
 fi

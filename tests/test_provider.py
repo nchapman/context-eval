@@ -636,13 +636,16 @@ def test_unpinned_client_does_not_narrow_on_429(monkeypatch):
     calls = []
 
     def post(body):
-        calls.append(body["provider"]["only"])
-        raise Exception("HTTP 429: throttled")
+        calls.append(list(body["provider"]["only"]))
+        from context_eval.provider import _TransientProviderError
+
+        raise _TransientProviderError("HTTP 429: provider returned error")
 
     monkeypatch.setattr(c, "_post", post)
     monkeypatch.setattr(P.time, "sleep", lambda s: None)
     try:
         c.complete([{"role": "user", "content": "hi"}])
-    except Exception:
+    except P.ProviderError:
         pass
-    assert all(pins == list(tags) for pins in calls)  # never narrowed
+    assert len(calls) >= 2  # the 429 path ran and retried
+    assert all(pins == list(tags) for pins in calls)  # never narrowed to one
