@@ -362,3 +362,29 @@ helps past saturation; hierarchy or a larger back is the lever. This
 is the scaling boundary of the Mem0/Zep comparison: record-level
 consolidation pays off exactly until the record set outgrows the
 resident view.
+
+## Ledger5: resident memory per the theory doc (Oct 2026, resident-memory-theory.md)
+
+The theory doc's first implementation: one activation law (ACT-R form,
+importance in the exponent), a rung ladder implemented as kept-detail-count
+(0 = name+status, 1 = gist, 2+ = full), an exposed forgetting surface
+(per-topic "faded" markers + anti-closure header), render-time sealing and
+staleness (pure classifications, no lifecycle state), quoted-only search
+reactivation, and an append-only re-encoding audit. Adjacent published
+lines: MemoryBank (AAI 2024, Ebbinghaus decay + significance) for
+importance-modulated decay; Soar's episodic memory for activation-ranked
+retrieval; GreedyDual-Size/ARC for weighted eviction -- ledger5's claim is
+the combination (eviction + demotion ladder + reversible, visible
+forgetting), not any one piece.
+
+Deviations from the theory, all render-side (module docstring of
+sawtooth.py is authoritative): no separate gists (ledger lines are already
+compressed; the newest line IS the gist rung); d(class) keyed to the
+topic's newest line; uses = extraction events + name-matching searches
+(the segment IS the exogenous stream); CLOCK virtual-idle and USE_SOURCES
+diagnostic arms recorded but computed offline. The collection-time
+recording (lines, source-tagged uses, search logs, per-tooth token
+positions, per-render blocks and rung trajectories) is the dial-sweep
+substrate: rerender_from_recording() reproduces live blocks byte-for-byte
+(tested), which is the contract that makes "collect once, sweep many"
+sound.

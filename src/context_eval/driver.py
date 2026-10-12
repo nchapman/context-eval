@@ -93,6 +93,7 @@ class RunResult:
     provider: str = ""
     error: str | None = None
     empty_summaries: int = 0  # compactions that produced no content (see StrategyStats)
+    recording: dict | None = None  # ledger5 sweep substrate; kept out of rows
 
     @property
     def mean_view_tokens(self) -> float:
@@ -103,7 +104,9 @@ class RunResult:
         return sum(a.score for a in self.answers) / max(1, len(self.answers))
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self), default=str)
+        d = asdict(self)
+        d.pop("recording", None)  # persisted as a sidecar, not in the row
+        return json.dumps(d, default=str)
 
 
 def view_to_wire(view: Sequence[PromptMessage | Message]) -> list[dict[str, Any]]:
@@ -459,3 +462,4 @@ def _capture_stats(strategy: Strategy, result: RunResult) -> None:
     result.overhead_usage = stats.overhead_usage
     result.compactions = stats.compactions
     result.empty_summaries = stats.empty_summaries
+    result.recording = strategy.recording()

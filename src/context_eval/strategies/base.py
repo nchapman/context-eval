@@ -73,3 +73,8 @@ class Strategy(ABC):
 
     def stats(self) -> StrategyStats:
         return StrategyStats()
+
+    def recording(self) -> dict | None:
+        """Optional collection-time recording for offline analysis (e.g.
+        ledger5's dial-sweep substrate). Default: none."""
+        return None

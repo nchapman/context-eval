@@ -22,11 +22,18 @@ Varies — the back's content semantics:
             unstructured — isolates append-onlyness from typed structure)
 - ledger    typed TOPIC|status|fact observations appended once plus the
             mechanical latest-wins inventory (conclusions semantics)
+- ledger5   resident memory per docs/resident-memory-theory.md: a
+            workstream/topic tree with one activation law, a rung ladder,
+            an exposed forgetting surface, and a collection-time recording
+            schema that makes every dial re-renderable offline
 """
 
 from __future__ import annotations
 
+import math
 import re
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 
 from context_eval.provider import ToolSchema
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
@@ -192,7 +199,9 @@ class SawtoothBack(Strategy):
     """One class, seven registered names; ``mode`` is the only difference."""
 
     def __init__(self, mode: str, name: str) -> None:
-        assert mode in ("none", "rewrite", "segments", "ledger", "ledger2", "ledger3", "ledger4")
+        assert mode in (
+            "none", "rewrite", "segments", "ledger", "ledger2", "ledger3", "ledger4", "ledger5",
+        )
         self.mode = mode
         self.name = name
         self._concluded_upto = 0  # messages below this are archived + backed
@@ -206,6 +215,27 @@ class SawtoothBack(Strategy):
         self._records: list[_Record] = []  # ledger: appended observations
         self._lines: list[_Ledger4Line] = []  # ledger4: typed lines
         self._topic_canon: dict[str, str] = {}  # ledger4: alias -> canonical
+        # ledger5 state (resident memory; see docs/resident-memory-theory.md)
+        self._dials5 = Ledger5Dials()
+        self._lines5: list[_Ledger5Line] = []
+        self._uses5: dict[str, list[int]] = {}  # topic key -> use teeth
+        self._ws_canon5: dict[str, str] = {}
+        self._topic_canon5: dict[str, str] = {}
+        self._chunks5: list[dict] = []
+        self._archived_tokens5 = 0
+        self._rec5: dict = {
+            "version": 1,
+            "strategy": "sawtooth-ledger5",
+            "dials": asdict(self._dials5),
+            "back_tokens_cap": BACK_TOKENS,
+            "teeth": [],
+            "lines": [],
+            "uses": [],
+            "searches": [],
+            "chunks": [],
+            "renders": [],
+            "rungs": [],
+        }
 
     # -- schedule (mode-independent) ------------------------------------------
 
@@ -289,6 +319,12 @@ class SawtoothBack(Strategy):
                     self._segment_summaries.append(summary)
             return
         # ledger family
+        if self.mode == "ledger5":
+            for chunk in self._chunks(span):
+                self._v5_extract_chunk(engine, chunk)
+            self._v5_audit(engine)
+            self._rec5_tooth(engine, span)
+            return
         if self.mode == "ledger4":
             for chunk in self._chunks(span):
                 known = self._known_topics_v4()
@@ -429,6 +465,8 @@ class SawtoothBack(Strategy):
         counter = engine.counter
         if self.mode == "none":
             return ""
+        if self.mode == "ledger5":
+            return self._back_block5(engine)
         if self.mode == "ledger4":
             return self._back_block4(engine)
         if self.mode == "rewrite":
@@ -569,6 +607,194 @@ class SawtoothBack(Strategy):
             )
         return f"{_HEADER_V4}\n\n" + "\n\n".join(groups)
 
+    # -- ledger5 hooks (no-ops for every other mode) --------------------------
+
+    def _note_search(self, query: str, results) -> None:
+        """Search hook: record the search log and apply re-activation uses.
+
+        Quoted-only semantics (the dial default): a search re-activates a
+        topic only when the query NAMES it -- an intentional search for
+        the topic, not an incidental FTS fan hit on shared words. """
+        if self.mode != "ledger5":
+            return
+        tooth = self._teeth + 1
+        matched = self._v5_match_topics(query)
+        self._rec5["searches"].append({
+            "tooth": tooth, "query": query,
+            "results": [mid for mid, _ in results],
+            "matched": sorted(matched),
+        })
+        mode = self._dials5.search_reactivates
+        if mode == "off":
+            return
+        keys = set(matched)
+        if mode == "any-hit":
+            result_ids = {mid for mid, _ in results}
+            for ln in self._lines5:
+                if set(ln.ids) & result_ids:
+                    keys.add(f"{ln.umbrella}/{ln.topic}".casefold())
+        for key in keys:
+            self._uses5.setdefault(key, []).append(tooth)
+            self._rec5["uses"].append({"tooth": tooth, "key": key, "source": "search"})
+
+    def _v5_match_topics(self, query: str) -> set[str]:
+        qtok = {w for w in re.split(r"\W+", query.lower()) if len(w) > 2}
+        if not qtok:
+            return set()
+        out: set[str] = set()
+        for ln in self._lines5:
+            toks = {
+                w
+                for w in re.split(r"\W+", f"{ln.umbrella} {ln.topic}".lower())
+                if len(w) > 2
+            }
+            if toks & qtok:
+                out.add(f"{ln.umbrella}/{ln.topic}".casefold())
+        return out
+
+    def _v5_extract_chunk(self, engine: Engine, chunk: str, audited: bool = False) -> None:
+        chunk_ids = set(re.findall(r"§([A-Za-z0-9_-]+) \[", chunk))
+        tooth = self._teeth + 1  # the tooth being born (post-cut number)
+        known = self._known_topics_v5()
+        text = self._complete(
+            engine, _EXTRACT_PROMPT_V5.format(segment=chunk, known_topics=known)
+        )
+        added, empty, covered = 0, 0, False
+        if not text:
+            empty = 1
+        for line in (text or "").splitlines():
+            m = _BULLET.match(line.strip())
+            if not m:
+                continue
+            new = _Ledger5Line(len(self._lines5), m.group(1))
+            if not new.umbrella or not new.topic:
+                continue
+            # coverage accrues BEFORE dedupe: an extraction that only
+            # restates known facts still SAW the chunk -- marking it
+            # uncovered would audit (and re-extract) every quiet chunk
+            if set(new.ids) & chunk_ids:
+                covered = True
+            # near-duplicate suppression (ledger4 rules): same topic, ~same
+            # content -> skip; a status transition is never suppressed.
+            words = new.wordset()
+            if words and any(
+                len(words & old.wordset()) / max(1, len(words)) >= 0.8
+                and f"{old.umbrella}/{old.topic}".casefold()
+                == f"{new.umbrella}/{new.topic}".casefold()
+                and (
+                    not new.is_state_change
+                    or (old.is_state_change and old.kind == new.kind)
+                )
+                for old in self._lines5[-60:]
+            ):
+                continue
+            new.umbrella = self._canon_ws5(new.umbrella)
+            new.topic = self._canon_topic5(new.umbrella, new.topic)
+            new.tooth = tooth
+            self._lines5.append(new)
+            key = f"{new.umbrella}/{new.topic}".casefold()
+            self._uses5.setdefault(key, []).append(tooth)
+            self._rec5["lines"].append({
+                "seq": new.seq, "ws": new.umbrella, "topic": new.topic,
+                "kind": new.kind, "text": new.text, "ids": list(new.ids),
+                "tooth": tooth, "audited": audited,
+            })
+            self._rec5["uses"].append({"tooth": tooth, "key": key, "source": "segment"})
+            added += 1
+        _heartbeat("ledger5", self._teeth, added, empty)
+        entry = {
+            "tooth": tooth, "ids": sorted(chunk_ids),
+            "covered": covered or not chunk_ids, "audited": audited,
+        }
+        self._chunks5.append(entry)
+        self._rec5["chunks"].append(entry)
+
+    def _v5_audit(self, engine: Engine) -> None:
+        """Append-only re-encoding audit (theory §3.7): archive chunks with
+        zero ledger coverage for REAUDIT_GAP teeth get ONE re-extraction,
+        cached forever after. The chunk text is rebuilt from the store by
+        id -- a pure function of the segment -- so sweeps replay the same
+        appends without provider calls."""
+        gap = self._dials5.reaudit_gap
+        current = self._teeth + 1
+        for ch in self._chunks5:
+            if ch["covered"] or ch["audited"]:
+                continue
+            if current - ch["tooth"] < gap:
+                continue
+            ch["audited"] = True  # set first: audit once, whatever happens
+            wanted = set(ch["ids"])
+            parts = [
+                f"§{m.id} [{m.role.value}]\n{m.content}\n\n"
+                for m in engine.store.messages()
+                if m.id in wanted
+            ]
+            if parts:
+                self._v5_extract_chunk(engine, "".join(parts), audited=True)
+
+    def _rec5_tooth(self, engine: Engine, span) -> None:
+        self._archived_tokens5 += sum(
+            engine.counter.count_message(m) for m in span
+        )
+        tooth = self._teeth + 1
+        self._rec5["teeth"].append({
+            "tooth": tooth,
+            "ts": datetime.now(UTC).isoformat(),
+            "archived_tokens": self._archived_tokens5,
+            "cut_messages": len(span),
+            "chunks": sum(1 for c in self._chunks5 if c["tooth"] == tooth),
+        })
+
+    def _canon_ws5(self, name: str) -> str:
+        key = name.casefold()
+        if key not in self._ws_canon5:
+            self._ws_canon5[key] = name
+        return self._ws_canon5[key]
+
+    def _canon_topic5(self, ws: str, topic: str) -> str:
+        key = f"{ws}/{topic}".casefold()
+        if key not in self._topic_canon5:
+            self._topic_canon5[key] = topic
+        return self._topic_canon5[key]
+
+    def _known_topics_v5(self, ws_cap: int = 30, topic_cap: int = 100) -> str:
+        if not self._lines5:
+            return ""
+        last: dict[str, int] = {}
+        disp: dict[str, str] = {}
+        ws_last: dict[str, int] = {}
+        ws_disp: dict[str, str] = {}
+        for ln in self._lines5:
+            tkey = f"{ln.umbrella}/{ln.topic}".casefold()
+            last[tkey] = max(last.get(tkey, 0), ln.seq)
+            disp.setdefault(tkey, f"{ln.umbrella}/{ln.topic}")
+            wkey = ln.umbrella.casefold()
+            ws_last[wkey] = max(ws_last.get(wkey, 0), ln.seq)
+            ws_disp.setdefault(wkey, ln.umbrella)
+        ws = ", ".join(
+            ws_disp[k] for k in sorted(ws_last, key=lambda k: -ws_last[k])[:ws_cap]
+        )
+        topics = ", ".join(
+            disp[k] for k in sorted(last, key=lambda k: -last[k])[:topic_cap]
+        )
+        return f"WORKSTREAMS: {ws}\nKNOWN TOPICS (workstream/topic): {topics}\n"
+
+    def _back_block5(self, engine: Engine) -> str:
+        cap = min(self._dials5.resident_budget, BACK_TOKENS)
+        block, rungs = render_ledger5(
+            self._lines5, self._uses5, self._teeth + 1, self._dials5,
+            engine.counter, cap,
+        )
+        last = self._rec5["renders"][-1] if self._rec5["renders"] else None
+        if not last or last["block"] != block or last["render_tooth"] != self._teeth + 1:
+            self._rec5["renders"].append({
+                "completed_teeth": self._teeth,
+                "render_tooth": self._teeth + 1,
+                "block": block,
+            })
+            self._rec5["rungs"].extend(rungs)
+        return block
+
     def assemble(self, engine: Engine) -> list[PromptMessage]:
         view: list[PromptMessage] = []
         block = self._back_block(engine)
@@ -610,6 +836,7 @@ class SawtoothBack(Strategy):
 
         def do_search(args):
             results = self._index.search(str(args.get("query", "")), limit=5)
+            self._note_search(str(args.get("query", "")), results)
             if not results:
                 return "no matches"
             return "\n".join(f"{mid}: {snippet}" for mid, snippet in results)
@@ -632,6 +859,20 @@ class SawtoothBack(Strategy):
             empty_summaries=self._empty,
             recall_tool_calls=0,
         )
+
+    def recording(self) -> dict | None:
+        """Collection-time recording for offline dial sweeps (ledger5 only).
+
+        The recording is the sweep substrate: re-rendering it under new
+        dials must reproduce what a live run at those dials would have
+        shown, up to the recorded exogenous stream (the counterfactual
+        caveat in the theory doc). Everything the render touches is in
+        here: lines with birth teeth, source-tagged uses, search logs,
+        per-tooth token positions, and rendered blocks for verification.
+        """
+        if self.mode != "ledger5":
+            return None
+        return self._rec5
 
 
 class SawtoothNone(SawtoothBack):
@@ -667,3 +908,440 @@ class SawtoothLedger3(SawtoothBack):
 class SawtoothLedger4(SawtoothBack):
     def __init__(self) -> None:
         super().__init__("ledger4", "sawtooth-ledger4")
+
+
+# -- ledger5: resident memory (docs/resident-memory-theory.md) ----------------
+#
+# Implementation mapping (theory -> this arm), deviations here per project
+# convention (and mirrored in docs/lit-review.md):
+# - items are TOPICS; the rung ladder is kept-detail-line count: 0 lines =
+#   L2 (name+status; name-only when PIN_STATE_STATUS is off), 1 = L1,
+#   2+ = L0. No separate gists are generated: the ledger's <=15-word
+#   lines are already compressed, so "gist" = the newest line alone.
+# - d(class) uses the topic's NEWEST line's kind: a topic currently driven
+#   by decisions behaves decision-durable. State-class durability is
+#   carried by D_STATE (smallest exponent) and the status pin together.
+# - uses: one per extracted line (the segment IS the exogenous stream)
+#   plus name-matching searches (quoted-only semantics by default). The
+#   renderer never feeds the ledger -- the invariant, not a dial.
+# - sealing/staleness are render-time classifications, recomputed pure
+#   from (last use, statuses) every render: no lifecycle state to corrupt,
+#   and a re-mentioned workstream unseals itself for free.
+# - CLOCK=teeth+virtual-idle and the USE_SOURCES diagnostic arms are
+#   recorded (timestamps, source-tagged uses) but computed offline in the
+#   sweep harness, not live.
+# - RESIDENT_BUDGET is clamped to BACK_TOKENS: the trigger prices the
+#   back at its cap, so a larger dial would break the overflow invariant.
+_EXTRACT_PROMPT_V5 = """You maintain the ledger of an agent session (coding, chat, or mixed), appending observations from one segment.
+Every line belongs to a WORKSTREAM (the durable project it serves, a handful per session) and a TOPIC (the specific sub-stream inside it: a gate, a port, a benchmark, a phase).
+Output ONLY a bullet list, one per line, in exactly one of three forms:
+- WORKSTREAM/topic | note | the observation [§<ids>]
+- WORKSTREAM/topic | decision | what was chosen or agreed, and why [§<ids>]
+- WORKSTREAM/topic | <status> | what changed and why [§<ids>]
+Rules:
+- WORKSTREAM comes from the WORKSTREAMS vocabulary where one fits, verbatim. Coin a new one ONLY when the segment starts a genuinely new project. Never coin one per file, task, or gate.
+- TOPIC is one short canonical name per sub-stream; reuse KNOWN TOPICS verbatim where they fit.
+- note = findings, measurements, next steps. decision = a deliberate choice, commitment, or agreement that future work depends on. The status form (open, resolved, paused, in progress) is reserved for deliberate state changes: a decision landed, work shipped, something blocked or set aside — and says what and why. Never stamp a status on a note or decision.
+- At most ~5 lines per topic in this segment; keep what would most change what the agent does next; fold related details into one line.
+- EXCEPTION, never skipped and exempt from the budget: a one-line topic/status mention by the user (e.g. "the admin revamp is 'corvid', paused") is ALWAYS its own line — its own workstream if no existing one fits — with the state-change form when a status is stated.
+- At most 15 words; keep every value that gates future work (ids, numbers, versions, paths). Never quote the transcript.
+- A topic reappearing in a later segment is a new line.
+{known_topics}Segment:
+{segment}"""
+
+_V5_KINDS = ("note", "decision", "open", "resolved", "paused", "in progress")
+_V5_STATE_KINDS = ("open", "resolved", "paused", "in progress")
+
+_V5_ROW = re.compile(
+    r"^(?P<ws>[^/|]{1,40}?)/(?P<topic>[^|]{1,60}?)\s*\|\s*"
+    r"(?P<kind>[^|]{1,20})\s*\|\s*(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+_V5_FLAT = re.compile(
+    r"^(?P<name>[^|]{1,60}?)\s*\|\s*(?P<kind>[^|]{1,20})\s*\|\s*(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+
+
+class _Ledger5Line:
+    __slots__ = ("seq", "umbrella", "topic", "kind", "text", "ids", "tooth", "tokens_cache")
+
+    def __init__(self, seq: int, line: str) -> None:
+        self.seq = seq
+        self.tooth = 0
+        self.ids: list[str] = []
+        self.tokens_cache = None
+        raw = line.strip().lstrip("-*").strip()
+        m = _V5_ROW.match(raw)
+        if m:
+            ws, topic = m.group("ws"), m.group("topic")
+            kind, rest = m.group("kind"), m.group("rest")
+        else:
+            f = _V5_FLAT.match(raw)
+            if not f:  # malformed: no parseable row at all
+                self.umbrella = self.topic = self.kind = ""
+                self.text = ""
+                return
+            ws = topic = f.group("name")  # no slash: workstream is its own topic
+            kind, rest = f.group("kind"), f.group("rest")
+        self.umbrella = ws.strip().strip("*_").strip()
+        self.topic = topic.strip().strip("*_").strip()
+        self.kind = kind.strip().lower()
+        if self.kind not in _V5_KINDS:
+            # off-vocabulary status word ('shipped', 'done', ...): keep the
+            # observation as a note rather than dropping the whole line
+            rest = f"{self.kind}: {rest}"
+            self.kind = "note"
+        cited = _IDS_V4.search(rest)
+        if cited:
+            self.ids = [w.strip() for w in cited.group(0)[1:].split(",")]
+        self.text = _IDS_V4.sub("", rest)
+        self.text = re.sub(r"\[[\s,]*\]", "", self.text)  # emptied id groups
+        self.text = re.sub(r"\s{2,}", " ", self.text).strip(" ,;")
+
+    @classmethod
+    def from_record(cls, d: dict) -> _Ledger5Line:
+        """Rebuild a line from its recording dict -- the offline sweep path."""
+        ln = cls(d["seq"], f"{d['ws']}/{d['topic']} | {d['kind']} | {d['text']}")
+        ln.tooth = d.get("tooth", 0)
+        ln.ids = list(d.get("ids", []))
+        return ln
+
+    @property
+    def is_state_change(self) -> bool:
+        return self.kind in _V5_STATE_KINDS
+
+    def wordset(self) -> set[str]:
+        return {w for w in re.split(r"\W+", self.text.lower()) if len(w) > 2}
+
+    def tokens(self, counter) -> int:
+        if self.tokens_cache is None:
+            self.tokens_cache = counter.count_text(self.text)
+        return self.tokens_cache
+
+
+@dataclass(frozen=True)
+class Ledger5Dials:
+    """The theory's dial table (docs/resident-memory-theory.md §5).
+
+    Defaults are stated priors, not fitted values; the sweep harness
+    fits them offline from recorded ledgers. Diagnostic values
+    (activation_form='exp', search_reactivates='off'/'any-hit') exist to
+    demonstrate failure modes, never as tuning directions.
+    """
+
+    d_note: float = 0.50
+    d_decision: float = 0.35
+    d_state: float = 0.20
+    activation_form: str = "power"  # power | exp (diagnostic)
+    recency_floor_full: int = 8  # teeth; L0 detail needs a use within K
+    pin_state_status: bool = True
+    pin_next_step: bool = True  # product prior, not theory-derived
+    resident_budget: int = 4_096  # clamped to BACK_TOKENS at render
+    composition_detail: str = "max"  # max | mass
+    seal_after_teeth: int = 30
+    stale_status_teeth: int = 15
+    reaudit_gap: int = 3
+    use_sources: str = "exogenous"  # diagnostic arms computed offline
+    search_reactivates: str = "quoted"  # quoted | any-hit | off
+    clock: str = "teeth"  # teeth+virtual-idle computed offline
+
+
+@dataclass
+class _T5Topic:
+    key: str
+    name: str
+    facts: list
+    status: str
+    blocks_seal: bool
+    act: float
+    last_use: int
+    marker_upgrade: int = 0  # tokens: faded marker minus plain line
+
+
+@dataclass
+class _T5Ws:
+    key: str
+    name: str
+    topics: list
+    status: str
+    last_use: int
+    sealed: bool
+    mass: float
+    top: float
+
+
+def _l5_d_for(kind: str, dials: Ledger5Dials) -> float:
+    if kind in _V5_STATE_KINDS:
+        return dials.d_state
+    if kind == "decision":
+        return dials.d_decision
+    return dials.d_note
+
+
+def _l5_activation(use_teeth: list[int], tooth: int, d: float, form: str) -> float:
+    """The law: ln sum over uses of (teeth since use)^(-d), clamped t>=1.
+
+    A fresh single-use item sits at exactly ln 1 = 0; an aged single use
+    decays as -d*ln(t) -- logarithmically, never to a floor.
+    """
+    total = 0.0
+    for u in use_teeth:
+        t = tooth - u
+        if t < 1:
+            t = 1
+        total += math.exp(-t / 8.0) if form == "exp" else t ** (-d)
+    return math.log(total) if total > 0.0 else float("-inf")
+
+
+_HEADER_V5 = (
+    "[Session memory — an append-only index of workstreams. NOT exhaustive: "
+    "history_search the verbatim archive before concluding anything never "
+    "happened. Topics marked 'faded' have more detail in the archive — "
+    "search the topic name to restore it]"
+)
+
+
+def _l5_topic_line(t: _T5Topic, dials: Ledger5Dials, *, has_detail: bool) -> str:
+    status = f": {t.status}" if (dials.pin_state_status or has_detail) else ""
+    faded = f' · faded — search "{t.name}"' if not has_detail else ""
+    return f"{t.name}{status}{faded}"
+
+
+def _l5_sealed_line(sealed: list, counter, cap: int) -> str:
+    names = [w.name for w in sealed]  # mass-desc: trim from the end
+    budget = max(40, min(400, cap // 4))
+    line = "sealed: " + ", ".join(names)
+    while len(names) > 2 and counter.count_text(line) > budget:
+        names.pop()
+        line = "sealed: " + ", ".join(names) + f" (+{len(sealed) - len(names)} earlier)"
+    return line
+
+
+def _l5_emit(active, sealed, kept, dials, counter, cap) -> str:
+    parts = [_HEADER_V5]
+    for w in active:
+        lines = [f"## {w.name} — {w.status}"]
+        for t in w.topics:
+            k = sorted(kept.get(t.key, ()), key=lambda f: f.seq, reverse=True)
+            lines.append(_l5_topic_line(t, dials, has_detail=bool(k)))
+            lines.extend(f"- {f.text}" for f in k)
+        parts.append("\n".join(lines))
+    if sealed:
+        parts.append(_l5_sealed_line(sealed, counter, cap))
+    return "\n\n".join(parts)
+
+
+def _l5_index(lines, uses, tooth, dials):
+    """Group facts into topics and workstreams; compute the law."""
+    groups: dict[str, list] = {}
+    names: dict[str, tuple[str, str]] = {}
+    for ln in lines:
+        if not ln.umbrella or not ln.topic:
+            continue
+        key = f"{ln.umbrella}/{ln.topic}".casefold()
+        groups.setdefault(key, []).append(ln)
+        names.setdefault(key, (ln.umbrella, ln.topic))
+    topics: dict[str, _T5Topic] = {}
+    for key, facts in groups.items():
+        facts.sort(key=lambda f: f.seq)
+        status = next(
+            (f.kind for f in reversed(facts) if f.is_state_change), "open"
+        )
+        ulist = [u for u in (uses.get(key) or []) if u <= tooth] or [
+            f.tooth for f in facts if f.tooth
+        ]
+        if not ulist:
+            ulist = [1]
+        d = _l5_d_for(facts[-1].kind, dials)
+        act = _l5_activation(ulist, tooth, d, dials.activation_form)
+        last_use = max(ulist)
+        stale = (
+            status in ("open", "in progress")
+            and (tooth - last_use) > dials.stale_status_teeth
+        )
+        topics[key] = _T5Topic(
+            key=key, name=names[key][1], facts=facts,
+            status="stalled" if stale else status,
+            blocks_seal=(status in ("open", "in progress") and not stale),
+            act=act, last_use=last_use,
+        )
+    ws_map: dict[str, list] = {}
+    for key, t in topics.items():
+        ws_map.setdefault(names[key][0].casefold(), []).append(t)
+    wss = []
+    for ws_key, ts in ws_map.items():
+        st_fact = max(
+            (f for t in ts for f in t.facts if f.is_state_change),
+            key=lambda f: f.seq, default=None,
+        )
+        status = st_fact.kind if st_fact else "open"
+        last_use = max(t.last_use for t in ts)
+        stale = (
+            status in ("open", "in progress")
+            and (tooth - last_use) > dials.stale_status_teeth
+        )
+        sealed = (tooth - last_use) > dials.seal_after_teeth and not any(
+            t.blocks_seal for t in ts
+        )
+        wss.append(_T5Ws(
+            key=ws_key, name=names[ts[0].key][0], topics=ts,
+            status="stalled" if stale else status, last_use=last_use,
+            sealed=sealed, mass=sum(t.act for t in ts),
+            top=max(t.act for t in ts),
+        ))
+    return topics, wss
+
+
+def render_ledger5(lines, uses, tooth, dials, counter, cap):
+    """The view is a rendering, not a document: a pure function of
+    (ledger, uses, tooth, budget) -- the exact function both the live arm
+    and the offline dial sweeps call.
+
+    View-assembly policy (theory §3.4, invariant): index reservation first
+    (every unsealed workstream header + every topic name+status line),
+    then topic-balanced detail fill (rounds across workstreams,
+    activation-ordered within, newest facts first), exact accounting
+    throughout -- the block can never exceed cap.
+    Returns (block_text, rung_rows).
+    """
+    topics, wss = _l5_index(lines, uses, tooth, dials)
+    if not topics:
+        return "", []
+    comp = (lambda w: w.mass) if dials.composition_detail == "mass" else (lambda w: w.top)
+    active = [w for w in wss if not w.sealed]
+    sealed = [w for w in wss if w.sealed]
+    active.sort(key=lambda w: (comp(w), w.last_use, w.name), reverse=True)
+    sealed.sort(key=lambda w: (w.mass, w.name), reverse=True)
+    for w in wss:
+        w.topics.sort(key=lambda t: (t.act, t.last_use, t.name), reverse=True)
+        for t in w.topics:
+            # what the topic line costs with detail vs faded: the true
+            # first-fact delta in BOTH pin_state_status settings (with the
+            # pin off, a detailed line gains ': status' -- plain-name
+            # accounting undercounted exactly there)
+            t.marker_upgrade = counter.count_text(
+                _l5_topic_line(t, dials, has_detail=False)
+            ) - counter.count_text(
+                _l5_topic_line(t, dials, has_detail=True)
+            )
+    # -- reservation + triage: the zero-fill block must fit
+    while True:
+        base = _l5_emit(active, sealed, {}, dials, counter, cap)
+        if counter.count_text(base) <= cap or len(active) <= 1:
+            break
+        victim = min(active, key=lambda w: (w.mass, w.name))
+        active.remove(victim)
+        sealed.append(victim)
+        sealed.sort(key=lambda w: (w.mass, w.name), reverse=True)
+    # -- incremental fill with exact arithmetic
+    used = counter.count_text(base)
+    kept: dict[str, list] = {}
+    keptseq: dict[str, set] = {}
+    added: list = []  # global add order, for overflow rollback
+
+    def fact_cost(f) -> int:
+        return counter.count_text(f"- {f.text}") + 1
+
+    def delta(t: _T5Topic, f) -> int:
+        d = fact_cost(f)
+        if not kept.get(t.key):
+            d -= t.marker_upgrade  # the faded marker goes away
+        return d
+
+    def add(t: _T5Topic, f) -> bool:
+        nonlocal used
+        d = delta(t, f)
+        if used + d > cap:
+            return False
+        kept.setdefault(t.key, []).append(f)
+        keptseq.setdefault(t.key, set()).add(f.seq)
+        added.append((t, f))
+        used += d
+        return True
+
+    if dials.pin_next_step:
+        for w in active:
+            cands = [
+                f for t in w.topics for f in t.facts
+                if f.kind in ("note", "decision")
+            ]
+            if cands:
+                f = max(cands, key=lambda f: f.seq)
+                t = next(t for t in w.topics if any(x is f for x in t.facts))
+                if f.seq not in keptseq.get(t.key, set()):
+                    add(t, f)  # a pin that does not fit is dropped, not forced
+    while True:
+        progressed = False
+        for w in active:
+            for t in w.topics:
+                if kept.get(t.key) and (tooth - t.last_use) > dials.recency_floor_full:
+                    continue  # L0 needs a use within the recency floor
+                nxt = next(
+                    (f for f in reversed(t.facts)
+                     if f.seq not in keptseq.get(t.key, set())),
+                    None,
+                )
+                if nxt is None:
+                    continue
+                if add(t, nxt):
+                    progressed = True
+        if not progressed:
+            break
+    block = _l5_emit(active, sealed, kept, dials, counter, cap)
+    # rollback safety net: if arithmetic ever drifts from the emitted
+    # text, drop the globally-last-added facts until it fits (converges:
+    # every drop frees at least one token).
+    while counter.count_text(block) > cap and added:
+        t, f = added.pop()
+        kept[t.key] = [x for x in kept[t.key] if x.seq != f.seq]
+        keptseq[t.key].discard(f.seq)
+        block = _l5_emit(active, sealed, kept, dials, counter, cap)
+    if counter.count_text(block) > cap:
+        # degenerate regime: cap below header + minimal index (never at
+        # BACK_TOKENS). Elide the whole index rather than exceed the
+        # priced back -- the overflow invariant is absolute (R11).
+        block = (
+            f"{_HEADER_V5}\n\n"
+            f"+{len(wss)} workstreams — index elided at this budget; "
+            "history_search the archive"
+        )
+    while counter.count_text(block) > cap:  # absolute last resort
+        block = block[: max(0, int(len(block) * 0.9))]
+    rungs = [
+        {
+            "tooth": tooth, "ws": w.name, "topic": t.name, "status": t.status,
+            "kept": len(kept.get(t.key, ())), "sealed": w.sealed,
+            "act": round(t.act, 3),
+        }
+        for w in wss
+        for t in w.topics
+    ]
+    return block, rungs
+
+
+def rerender_from_recording(rec: dict, counter, tooth: int | None = None):
+    """Offline dial-sweep entry point: re-render a recorded ledger.
+
+    Roundtrip contract: with the recorded dials and the last render's
+    tooth, this reproduces the live block byte-for-byte (tested); with
+    new dials it is the sweep. `uses` here mirrors what the live run
+    counted (segment + quoted search); sweep variants (any-hit, off)
+    are derivable from rec['searches'] + line ids.
+    """
+    dials = Ledger5Dials(**rec["dials"])
+    if tooth is None:
+        tooth = rec["renders"][-1]["render_tooth"] if rec["renders"] else 1
+    lines = [_Ledger5Line.from_record(d) for d in rec["lines"]]
+    uses: dict[str, list[int]] = {}
+    for u in rec["uses"]:
+        uses.setdefault(u["key"], []).append(u["tooth"])
+    cap = min(dials.resident_budget, rec.get("back_tokens_cap", BACK_TOKENS))
+    return render_ledger5(lines, uses, tooth, dials, counter, cap)
+
+
+class SawtoothLedger5(SawtoothBack):
+    def __init__(self) -> None:
+        super().__init__("ledger5", "sawtooth-ledger5")
+
+

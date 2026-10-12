@@ -140,6 +140,62 @@ def test_rerun_truncates_output(tmp_path, monkeypatch):
     assert "stale" not in lines[0]
 
 
+def test_recording_sidecar_written_per_budget(tmp_path, monkeypatch):
+    """ledger5's recording is the collect-once-sweep-many substrate: it
+    must land as a sidecar (never in the row), named per budget so
+    multi-budget runs do not clobber each other."""
+    import json
+
+    from context_eval import run_eval as re_mod
+    from context_eval.driver import RunResult
+
+    sample = tmp_path / "s.jsonl"
+    sample.write_text(json.dumps({
+        "dataset": "swe", "sample_id": "x1",
+        "messages": [{"role": "user", "content": "hi", "meta": {}}],
+        "meta": {},
+    }) + "\n")
+
+    class FakeClient:
+        pass
+
+    def fake_run_sample(**kwargs):
+        result = RunResult(strategy=kwargs["strategy"].name, dataset="swe",
+                           sample_id="x1", budget_tokens=kwargs["budget_tokens"])
+        result.recording = {"version": 1, "budget": kwargs["budget_tokens"]}
+        return result
+
+    monkeypatch.setattr(re_mod, "OpenRouterClient", lambda: FakeClient())
+    monkeypatch.setattr(re_mod, "default_counter", lambda: "c")
+    monkeypatch.setattr(re_mod, "run_sample", fake_run_sample)
+
+    out = tmp_path / "runs.jsonl"
+    rc = re_mod.main(["--path", str(sample), "--strategies", "sliding-window",
+                      "--budgets", "8000,16000", "--samples", "1", "--out", str(out)])
+    assert rc == 0
+    rows = [json.loads(ln) for ln in out.read_text().splitlines()]
+    assert len(rows) == 2
+    for row in rows:  # the recording never bloats the result row
+        assert "recording" not in row
+    sidecars = sorted(tmp_path.glob("runs.sliding-window.*.recording.json"))
+    assert len(sidecars) == 2  # one per budget, no clobbering
+    budgets = {json.loads(p.read_text())["budget"] for p in sidecars}
+    assert budgets == {8000, 16000}
+
+
+def test_runresult_to_json_drops_recording():
+    """The row contract: recording is sidecar-only."""
+    import json
+
+    from context_eval.driver import RunResult
+
+    result = RunResult(strategy="s", dataset="d", sample_id="x",
+                       budget_tokens=1000, recording={"big": [1, 2, 3]})
+    parsed = json.loads(result.to_json())
+    assert "recording" not in parsed
+    assert parsed["strategy"] == "s"
+
+
 class TestTraceQa:
     def test_build_questions_appends_trace_qa(self):
         from context_eval.run_eval import build_questions

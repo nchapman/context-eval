@@ -183,6 +183,15 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     out_file.write(result.to_json() + "\n")
                     out_file.flush()
+                    if result.recording:
+                        safe_id = "".join(
+                            c if c.isalnum() else "-" for c in result.sample_id[:24]
+                        ).strip("-")
+                        sidecar = args.out.with_name(
+                            f"{args.out.stem}.{result.strategy}."
+                            f"{result.budget_tokens}.{safe_id}.recording.json"
+                        )
+                        sidecar.write_text(json.dumps(result.recording, default=str))
                     grouped[(name, budget)].append(result)
                     runs += 1
                     status = (
