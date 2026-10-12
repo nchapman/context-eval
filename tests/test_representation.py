@@ -164,7 +164,7 @@ class TestRepresentationMemory:
         tools = {t.schema.name: t.execute for t in s.tools(eng)}
         out = tools["history_search"]({"query": "topic-27"})
         assert "m000" in out
-        mid = out.split(":")[0]
+        mid = out.split()[0]  # "m000003 [user]: ..."
         assert "topic-27" in tools["history_recall"]({"id": mid})
 
     def test_registry_contains_representation(self):

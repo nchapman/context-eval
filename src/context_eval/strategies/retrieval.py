@@ -35,6 +35,7 @@ from typing import Any
 
 from context_eval.provider import ToolSchema
 from context_eval.strategies.base import Engine, EngineTool, StrategyStats
+from context_eval.strategies.lcm import render_search_results
 from context_eval.strategies.sliding_window import SlidingWindow
 
 BM25_K1 = 1.2
@@ -201,7 +202,7 @@ class RetrievalOnly(SlidingWindow):
             results = self._index.search(str(args.get("query", "")), limit=5)
             if not results:
                 return "no matches"
-            return "\n".join(f"{mid}: {snippet}" for mid, snippet in results)
+            return render_search_results(results, engine.store)
 
         def do_recall(args: Mapping[str, Any]) -> str:
             self._recall_calls += 1

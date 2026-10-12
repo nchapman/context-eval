@@ -45,7 +45,7 @@ from context_eval.strategies.conclusions import (
     _Record,
 )
 from context_eval.strategies.flat_compact import _D1_PROMPT
-from context_eval.strategies.lcm import summary_call_kwargs
+from context_eval.strategies.lcm import render_search_results, summary_call_kwargs
 from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
 from context_eval.types import PromptMessage, Role, Usage
 
@@ -860,7 +860,7 @@ class SawtoothBack(Strategy):
             self._note_search(str(args.get("query", "")), results)
             if not results:
                 return "no matches"
-            return "\n".join(f"{mid}: {snippet}" for mid, snippet in results)
+            return render_search_results(results, engine.store)
 
         def do_recall(args):
             try:

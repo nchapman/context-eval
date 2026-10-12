@@ -408,3 +408,39 @@ class TestBoundaryOverlap:
 
         ctx_ids = set(_re.findall(r"§(m\d+)", ctx))
         assert ctx_ids and ctx_ids.issubset(set(_re.findall(r"§(m\d+)", llm.calls[0])))
+
+
+class TestAttributedSnippets:
+    def test_snippet_is_start_anchored_with_subject(self):
+        from context_eval.strategies.lcm import _FtsIndex
+
+        idx = _FtsIndex()
+        idx.index([type("M", (), {"id": "m000001", "content":
+            "By the way, I recently participated in a charity walk and "
+            "managed to raise $250 through sponsors, which got me thinking "
+            "about reducing waste. " + "filler " * 80})()])
+        (mid, snip), = idx.search("raised $250 sponsors", limit=1)
+        assert mid == "m000001"
+        assert "I recently participated in a charity walk" in snip  # the subject
+        assert "$250" in snip
+
+    def test_deep_match_appends_window(self):
+        from context_eval.strategies.lcm import _FtsIndex
+
+        idx = _FtsIndex()
+        idx.index([type("M", (), {"id": "m000001", "content":
+            "Intro about cooking. " + "filler sentence here. " * 60
+            + "The telescope aperture is 250mm on the Orion model."})()])
+        (mid, snip), = idx.search("telescope aperture", limit=1)
+        assert snip.startswith("Intro about cooking")
+        assert "…[later]" in snip and "250mm" in snip
+
+    def test_render_carries_role_header(self):
+        from context_eval.store import TranscriptStore
+        from context_eval.strategies.lcm import render_search_results
+        from context_eval.types import Role
+
+        store = TranscriptStore()
+        store.append(Role.USER, "I raised $250 in a charity walk")
+        out = render_search_results([("m000001", "I raised $250 ...")], store)
+        assert out == "m000001 [user]: I raised $250 ..."

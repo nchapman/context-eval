@@ -69,7 +69,7 @@ class TestRetrievalOnly:
         strategy, eng = engine
         tools = {t.schema.name: t for t in strategy.tools(eng)}
         hit = tools["history_search"].execute({"query": "CI config pinned"})
-        mid = hit.splitlines()[0].split(":")[0]
+        mid = hit.splitlines()[0].split()[0]  # "m000003 [user]: ..."
         full = tools["history_recall"].execute({"id": mid})
         assert "pytest to 8.2.1" in full
 

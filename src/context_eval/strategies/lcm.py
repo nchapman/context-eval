@@ -117,6 +117,24 @@ narrative. Keep the summary under ~150 words.
 )
 
 
+def render_search_results(results, store) -> str:
+    """Render search hits with role attribution: `m000169 [user]: ...`.
+
+    Without the role header a hit like '...managed to raise $250 through
+    sponsors...' is unattributable -- could be anyone discussed in the
+    transcript -- and the answer model discards it (dev25 charity total:
+    the fact was visible in the #1 snippet and never integrated)."""
+    lines = []
+    for mid, snippet in results:
+        role = "?"
+        try:
+            role = store.require(mid).role.value
+        except KeyError:
+            pass
+        lines.append(f"{mid} [{role}]: {snippet}")
+    return "\n".join(lines)
+
+
 @dataclass
 class _Node:
     depth: int  # 1 = leaf summary, 2+ = consolidations
@@ -346,7 +364,7 @@ class LCMDagger(Strategy):
             hits = self._fts.search(query, limit=5)
             if not hits:
                 return "no matches"
-            return "\n".join(f"[§{mid}] {snip}" for mid, snip in hits)
+            return render_search_results(hits, engine.store)
 
         def do_recall(args):
             self._recall_calls += 1
@@ -373,7 +391,16 @@ class LCMDagger(Strategy):
 
 
 class _FtsIndex:
-    """Incremental FTS5 index over the archive; token-overlap fallback."""
+    """Incremental FTS5 index over the archive; token-overlap fallback.
+
+    Snippets are start-anchored (~250 chars), not match-centered: messages
+    lead with the subject ("I recently participated in a charity walk and
+    raised $250..."), so centering on the match terms amputates exactly the
+    attribution the answer model needs to USE a hit (dev25: the $250 hit
+    ranked #1 with the amount visible, but the subject was outside the old
+    90-char window and the model never integrated it). When the best match
+    is deep in a long message, the match window is appended after the
+    opening so neither context nor the hit is lost."""
 
     def __init__(self) -> None:
         self.indexed_upto = 0
@@ -427,14 +454,14 @@ class _FtsIndex:
             if fts_query:
                 try:
                     cursor = self._conn.execute(
-                        "SELECT id, snippet(msgs, 1, '>', '<', '…', 12) "
-                        "FROM msgs WHERE msgs MATCH ? ORDER BY rank LIMIT ?",
+                        "SELECT id, content FROM msgs WHERE msgs MATCH ? "
+                        "ORDER BY rank LIMIT ?",
                         (fts_query, limit * 2),
                     )
                     seen = {mid for mid, _ in results}
-                    for mid, snip in cursor:
+                    for mid, content in cursor:
                         if mid not in seen:
-                            results.append((mid, snip))
+                            results.append((mid, self._snippet(content, query)))
                             if len(results) >= limit:
                                 break
                     return results
@@ -442,13 +469,39 @@ class _FtsIndex:
                     pass  # malformed MATCH syntax: fall through to overlap
         return results + self._overlap_search(query, limit)
 
+    SNIPPET_OPENING = 250  # start-anchored context chars
+    SNIPPET_MATCH = 110  # appended window when the match is deep
+
+    @classmethod
+    def _snippet(cls, content: str, query: str) -> str:
+        c = " ".join(content.split())
+        opening = (
+            c if len(c) <= cls.SNIPPET_OPENING
+            else c[: cls.SNIPPET_OPENING].rsplit(" ", 1)[0] + "…"
+        )
+        terms = [t for t in re.split(r"\W+", query.lower()) if len(t) > 2]
+        # find the first strong match term beyond the opening window
+        low = c.lower()
+        deep = next(
+            (
+                low.find(t, cls.SNIPPET_OPENING - 50)
+                for t in sorted(terms, key=len, reverse=True)
+                if low.find(t, cls.SNIPPET_OPENING - 50) != -1
+            ),
+            None,
+        )
+        if deep is not None and deep >= cls.SNIPPET_OPENING:
+            start = max(0, deep - cls.SNIPPET_MATCH // 3)
+            window = c[start : start + cls.SNIPPET_MATCH]
+            return f"{opening} …[later] {window}"
+        return opening
+
     @staticmethod
-    def _phrase_snippet(content: str, phrase: str, width: int = 90) -> str:
-        at = content.lower().find(phrase)
-        start = max(0, at - width // 2)
-        window = content[start : start + width + len(phrase)]
-        mark = content[at : at + len(phrase)]
-        return window.replace(mark, f">{mark}<", 1)
+    def _phrase_snippet(content: str, phrase: str) -> str:
+        # kept for phrase-boost marking: start-anchored, phrase highlighted
+        opening = _FtsIndex._snippet(content, phrase)
+        mark = phrase
+        return opening.replace(mark, f">{mark}<", 1)
 
     @staticmethod
     def _fts_query(query: str) -> str:

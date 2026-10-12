@@ -18,7 +18,7 @@ import re
 
 from context_eval.provider import ToolSchema
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
-from context_eval.strategies.lcm import _FtsIndex, summary_call_kwargs
+from context_eval.strategies.lcm import _FtsIndex, render_search_results, summary_call_kwargs
 from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
 from context_eval.types import PromptMessage, Role, Usage
 
@@ -260,7 +260,7 @@ class ConclusionsMemory(Strategy):
             results = self._index.search(str(args.get("query", "")), limit=5)
             if not results:
                 return "no matches"
-            return "\n".join(f"{mid}: {snippet}" for mid, snippet in results)
+            return render_search_results(results, engine.store)
 
         recall = ToolSchema(
             name="history_recall",
