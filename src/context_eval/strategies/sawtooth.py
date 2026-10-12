@@ -714,7 +714,10 @@ class SawtoothBack(Strategy):
         zero ledger coverage for REAUDIT_GAP teeth get ONE re-extraction,
         cached forever after. The chunk text is rebuilt from the store by
         id -- a pure function of the segment -- so sweeps replay the same
-        appends without provider calls."""
+        appends without provider calls. The GAP itself, however, is a
+        collection-time dial: the recorded appends already carry their
+        audit-time birth teeth and prompt state, so a different gap
+        cannot be counterfactually re-run offline (rerender rejects it)."""
         gap = self._dials5.reaudit_gap
         current = self._teeth + 1
         for ch in self._chunks5:
@@ -923,8 +926,33 @@ class SawtoothLedger4(SawtoothBack):
 #   by decisions behaves decision-durable. State-class durability is
 #   carried by D_STATE (smallest exponent) and the status pin together.
 # - uses: one per extracted line (the segment IS the exogenous stream)
-#   plus name-matching searches (quoted-only semantics by default). The
-#   renderer never feeds the ledger -- the invariant, not a dial.
+#   plus name-matching searches. "Quoted-only" is operationalized as
+#   INTENTIONAL NAME-MATCH: the query names the topic (Matthew-effect
+#   guard intact). The literal spec reading -- "only the result the
+#   agent actually quotes back" -- is unrecordable here (models don't
+#   cite ids in answers) and diverges in both directions; the recorded
+#   search log (query, result ids, matched topics) reconstructs the
+#   name-match arm exactly, and the off / any-hit arms are synthesized
+#   from it. The renderer never feeds the ledger -- the invariant, not
+#   a dial.
+# - search itself is raw FTS, limit 5: no alias expansion, no
+#   ledger-weight/recency re-ranking of results (theory §3.6 fan
+#   management is aspirational here; depth-robustness of search makes
+#   this bounded).
+# - supersession ("replaces §id") and tree-repair ("moved under")
+#   channels are NOT implemented: near-duplicate suppression is a
+#   birth-time filter, and audits only re-extract UNCOVERED chunks -- a
+#   covered-but-misfiled topic is never repaired. Newest-first rendering
+#   approximates "newest non-superseded fact"; a stale line can occupy
+#   budget that supersession would free.
+# - index-overflow triage extends the sealed-collapse rule to ACTIVE
+#   workstreams: if the reserved zero-fill index exceeds cap, the
+#   lowest-mass active workstream is force-sealed (enumeration is
+#   preserved, "overflow never" holds, but a recently-used workstream
+#   can be labeled sealed). Composition 'max' = max member activation
+#   (the weight-in-one-locus reading of §3.4). pin_next_step pins one
+#   fact per UNSEALED workstream (spec says "open"); topics with no
+#   state-change line default to status open.
 # - sealing/staleness are render-time classifications, recomputed pure
 #   from (last use, statuses) every render: no lifecycle state to corrupt,
 #   and a re-mentioned workstream unseals itself for free. The sealed
@@ -1032,6 +1060,17 @@ class Ledger5Dials:
     fits them offline from recorded ledgers. Diagnostic values
     (activation_form='exp', search_reactivates='off'/'any-hit') exist to
     demonstrate failure modes, never as tuning directions.
+
+    Sweepability (rerender_from_recording enforces this): the eleven
+    render-time dials (d_note, d_decision, d_state, activation_form,
+    recency_floor_full, pin_state_status, pin_next_step,
+    resident_budget, composition_detail, seal_after_teeth,
+    stale_status_teeth) sweep offline. search_reactivates arms are
+    rebuilt offline from the recorded search log. reaudit_gap, clock,
+    and use_sources are COLLECTION-TIME: the recording bakes them in
+    (audits already ran under the recorded gap; aging is tooth-integer;
+    use streams are segment/search), so overriding them offline raises
+    rather than silently rendering an unchanged block.
     """
 
     d_note: float = 0.50
@@ -1342,6 +1381,47 @@ def render_ledger5(lines, uses, tooth, dials, counter, cap):
     return block, rungs
 
 
+def _l5_visible_uses(events: list, tooth: int) -> list:
+    """Uses visible to a render at `tooth`: segment uses must predate the
+    tooth (they are born inside compactions, which a render at tooth R
+    has not yet seen -- only R-1 of them have happened), while search
+    uses may stamp at the render tooth itself (question-time)."""
+    return [
+        u for u in events
+        if (u["tooth"] < tooth if u.get("source") == "segment" else u["tooth"] <= tooth)
+    ]
+
+
+def _l5_arm_uses(rec: dict, dials, recorded) -> list | None:
+    """Rebuild the use-event stream for a different search_reactivates
+    arm from the recorded search log (queries, result ids, matched
+    topics) and line ids. Returns None when the recorded stream already
+    matches the dial -- the common case, where per-render uses_upto
+    snapshots stay valid."""
+    if dials.search_reactivates == recorded.search_reactivates:
+        return None
+    base = [u for u in rec["uses"] if u["source"] != "search"]
+    if dials.search_reactivates == "off":
+        return base
+    if dials.search_reactivates == "any-hit":
+        lines = [_Ledger5Line.from_record(d) for d in rec["lines"]]
+        for s in rec["searches"]:
+            rids = set(s["results"])
+            keys = set(s["matched"])
+            # lines existing at the search moment: birth tooth strictly
+            # before the search's stamp (a tooth-T search sees <= T-1)
+            for ln in lines:
+                if ln.tooth < s["tooth"] and set(ln.ids) & rids:
+                    keys.add(f"{ln.umbrella}/{ln.topic}".casefold())
+            base.extend(
+                {"tooth": s["tooth"], "key": k, "source": "search"} for k in keys
+            )
+        return base
+    raise ValueError(
+        f"unknown search_reactivates arm: {dials.search_reactivates!r}"
+    )
+
+
 def rerender_from_recording(
     rec: dict, counter, tooth: int | None = None, dials: Ledger5Dials | None = None
 ):
@@ -1350,7 +1430,17 @@ def rerender_from_recording(
     `dials` overrides the recorded configuration (pass
     dataclasses.replace(Ledger5Dials(**rec["dials"]), ...) for partial
     changes) -- the recording itself is never mutated, so a sweep loop
-    over many dial values shares one recording safely.
+    over many dial values shares one recording safely. The eleven
+    render-time dials sweep for real; search_reactivates arms
+    (off / any-hit / quoted-as-recorded) are rebuilt from the recorded
+    search log. reaudit_gap, clock and use_sources are collection-time
+    -- the recording bakes them in -- and overriding them raises rather
+    than silently rendering an unchanged block that a sweep would then
+    misreport as "no effect". Byte-exactness is per LAST render at a
+    given tooth (superseded same-tooth renders are not addressable by
+    tooth alone); synthesized search arms trade that exactness for the
+    source-aware tooth filter (mid-tooth ordering precision is a
+    recorded-arm luxury).
 
     Roundtrip contract: with tooth=None (the default), this reproduces
     the last recorded render byte-for-byte -- uses are clipped to the
@@ -1367,33 +1457,45 @@ def rerender_from_recording(
     detail lines than the DeepSeek tokenizer did).
     """
     dials = dials or Ledger5Dials(**rec["dials"])
+    recorded = Ledger5Dials(**rec["dials"])
+    for fld in ("reaudit_gap", "clock", "use_sources"):
+        if getattr(dials, fld) != getattr(recorded, fld):
+            raise ValueError(
+                f"{fld} is a collection-time dial (recorded "
+                f"{getattr(recorded, fld)!r}): the recording bakes it in, "
+                "it cannot be swept offline"
+            )
+    arm_events = _l5_arm_uses(rec, dials, recorded)
     last_render = rec["renders"][-1] if rec["renders"] else None
     if tooth is None:
         tooth = last_render["render_tooth"] if last_render else 1
-        # pre-snapshot recordings (before uses_upto existed) fall back to
-        # all uses -- the old, slightly-looser semantics
-        upto = last_render.get("uses_upto", len(rec["uses"])) if last_render else 0
-        use_events = rec["uses"][:upto]
+        if arm_events is None:
+            # pre-snapshot recordings (before uses_upto existed) fall back
+            # to all uses -- the old, slightly-looser semantics
+            upto = last_render.get("uses_upto", len(rec["uses"])) if last_render else 0
+            use_events = rec["uses"][:upto]
+        else:
+            use_events = _l5_visible_uses(arm_events, tooth)
     else:
         # a render at tooth R happens with _teeth = R-1, so the R-th
         # compaction's segment uses/lines did not exist yet; only
         # question-time SEARCH uses legitimately stamp at the render
         # tooth. Prefer the render's own uses_upto snapshot when one was
         # recorded at this tooth (exact, incl. mid-tooth search state);
-        # interpolate source-aware for unrecorded teeth.
-        snap = next(
-            (r["uses_upto"] for r in reversed(rec["renders"])
-             if r["render_tooth"] == tooth and "uses_upto" in r),
-            None,
-        )
-        if snap is not None:
-            use_events = rec["uses"][:snap]
+        # interpolate source-aware otherwise (and always, for synthesized
+        # search arms -- snapshot indices refer to the RECORDED stream).
+        if arm_events is None:
+            snap = next(
+                (r["uses_upto"] for r in reversed(rec["renders"])
+                 if r["render_tooth"] == tooth and "uses_upto" in r),
+                None,
+            )
+            use_events = (
+                rec["uses"][:snap] if snap is not None
+                else _l5_visible_uses(rec["uses"], tooth)
+            )
         else:
-            use_events = [
-                u for u in rec["uses"]
-                if (u["tooth"] < tooth if u.get("source") == "segment"
-                    else u["tooth"] <= tooth)
-            ]
+            use_events = _l5_visible_uses(arm_events, tooth)
     lines = [_Ledger5Line.from_record(d) for d in rec["lines"]]
     uses: dict[str, list[int]] = {}
     for u in use_events:

@@ -577,6 +577,132 @@ class TestStrategyWiring:
         block, _ = rerender_from_recording(rec, counter(), dials=tight)
         assert block != recorded  # a smaller resident budget re-renders
         assert counter().count_text(block) <= 260
+        # the dials= override never mutates the recording (sweep loops
+        # share one recording): a fresh default roundtrip is still exact
+        assert rec["dials"]["resident_budget"] != 260
+        again, _ = rerender_from_recording(rec, counter())
+        assert again == recorded
+
+    def test_sweep_search_arm_off(self):
+        """search_reactivates='off' offline: the recorded search uses are
+        dropped. At the search's own tooth, the off arm therefore renders
+        EXACTLY the view that existed before the search -- the use never
+        counted -- while the recorded (quoted) arm sees it."""
+        llm = StubLLM(texts=[
+            "- kvarn/old | note | old aged detail line [§m000051]",
+        ])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger5()
+        for i in range(2400):  # ~41 teeth: the aged topic seals (>30)
+            eng.store.append(Role.TOOL, f"obs {i} " + "x" * 300)
+            s.on_turn(eng)
+        recorded = s._back_block5(eng)  # pre-search render: topic sealed
+        assert "old aged detail line" not in recorded
+        s._note_search("old", [("m000051", "snippet")])  # names it
+        rec = s.recording()
+        assert any(u["source"] == "search" for u in rec["uses"])
+        tooth = rec["renders"][-1]["render_tooth"]
+        from dataclasses import replace
+        off = replace(Ledger5Dials(**rec["dials"]), search_reactivates="off")
+        blk, _ = rerender_from_recording(rec, counter(), tooth=tooth, dials=off)
+        assert "old aged detail line" not in blk
+        assert "kvarn (stalled)" in blk  # sealed tier (name + last status)
+        assert blk == recorded  # the search never counted under 'off'
+        # ...while the recorded quoted arm sees the use one tooth later
+        # (at the search's own tooth the render's uses_upto snapshot
+        # correctly excludes it -- the search postdates that render)
+        quoted, _ = rerender_from_recording(rec, counter(), tooth=tooth + 1)
+        assert "old aged detail line" in quoted
+        assert "kvarn (stalled)" not in quoted  # unsealed by the search
+
+    def test_sweep_search_arm_any_hit(self):
+        """search_reactivates='any-hit' offline: synthesized from the
+        recorded search log -- a query that does NOT name the topic but
+        whose results hit the topic's line ids re-activates it."""
+        llm = StubLLM(texts=[
+            "- kvarn/old | note | old aged detail line [§m000051]",
+        ])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger5()
+        for i in range(300):
+            eng.store.append(Role.TOOL, f"obs {i} " + "x" * 300)
+            s.on_turn(eng)
+        recorded = s._back_block5(eng)
+        # live quoted arm: an unrelated query names nothing -> no use
+        s._note_search("unrelated words", [("m000051", "snippet")])
+        rec = s.recording()
+        assert not any(u["source"] == "search" for u in rec["uses"])
+        assert rec["searches"][0]["matched"] == []
+        from dataclasses import replace
+        anyhit = replace(
+            Ledger5Dials(**rec["dials"]), search_reactivates="any-hit"
+        )
+        blk, _ = rerender_from_recording(rec, counter(), dials=anyhit)
+        # the result-id hit synthesized a use: the aged topic re-activates
+        assert blk != recorded
+        assert "old aged detail line" in blk
+
+    def test_sweep_collection_time_dials_raise(self):
+        """reaudit_gap / clock / use_sources are baked in by the live run;
+        sweeping them offline would silently render an unchanged block
+        that the sweep would misreport as 'no effect'. They raise."""
+        from dataclasses import replace
+
+        import pytest
+        llm = StubLLM(texts=["- kvarn/gate | note | gate work [§m000001]"])
+        eng = engine_for(0, 20000, llm)
+        s = SawtoothLedger5()
+        for i in range(120):
+            eng.store.append(Role.TOOL, f"obs {i} " + "x" * 300)
+            s.on_turn(eng)
+        s._back_block5(eng)
+        rec = s.recording()
+        for fld, val in (("reaudit_gap", 9), ("clock", "wall"),
+                         ("use_sources", "search-only")):
+            d = replace(Ledger5Dials(**rec["dials"]), **{fld: val})
+            with pytest.raises(ValueError, match=fld):
+                rerender_from_recording(rec, counter(), dials=d)
+
+
+    def test_composition_detail_mass_vs_max(self):
+        """composition_detail: 'max' ranks workstreams by their hottest
+        topic, 'mass' by summed activation. Fixture: one four-event hot
+        topic vs three two-event warm topics -- max favors the hot
+        singleton, mass the summed warm set (act values: ln 4 = 1.39 for
+        hot; 3 x ln(1 + 2^-0.5) = 1.63 for warm)."""
+        lines = [
+            L(0, "hot", "single", "note", "one very hot topic", 2),
+            L(1, "warm", "a", "note", "warm topic a", 3),
+            L(2, "warm", "b", "note", "warm topic b", 4),
+            L(3, "warm", "c", "note", "warm topic c", 5),
+        ]
+        uses = {
+            "hot/single": [8, 8, 8, 8],
+            "warm/a": [7, 8], "warm/b": [7, 8], "warm/c": [7, 8],
+        }
+        by_max, _ = render(lines, uses, tooth=9, dials=Ledger5Dials(composition_detail="max"))
+        by_mass, _ = render(lines, uses, tooth=9, dials=Ledger5Dials(composition_detail="mass"))
+        # 'max' puts the single-hot workstream first; 'mass' the summed one
+        assert by_max.index("## hot") < by_max.index("## warm")
+        assert by_mass.index("## warm") < by_mass.index("## hot")
+
+    def test_activation_form_exp_diagnostic(self):
+        """activation_form='exp' (diagnostic): ln sum e^{-t/8} compresses
+        the tail harder than the power law, so relative activation can
+        flip. Fixture (tooth 8): aaa uses ages {1,5} -> power .369 >
+        bbb's .347 (ages {2,2}), but exp .349 < bbb's .443 -- the header
+        order flips between the laws."""
+        lines = [
+            L(0, "aaa", "topic", "note", "aaa work", 2),
+            L(1, "bbb", "topic", "note", "bbb work", 3),
+        ]
+        uses = {"aaa/topic": [3, 7], "bbb/topic": [6, 6]}
+        power, _ = render(lines, uses, tooth=8, dials=Ledger5Dials())
+        exp_, _ = render(
+            lines, uses, tooth=8, dials=Ledger5Dials(activation_form="exp")
+        )
+        assert power.index("## aaa") < power.index("## bbb")
+        assert exp_.index("## bbb") < exp_.index("## aaa")
 
     def test_run_sample_captures_recording_end_to_end(self):
         """The capture wiring itself: run_sample with a REAL ledger5 arm

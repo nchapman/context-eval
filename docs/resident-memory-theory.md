@@ -211,6 +211,13 @@ over a *source-tagged use log* (recorded at collection time), never ledger
 writes. Only *exogenous* events append uses — user messages, tool results,
 agent actions in the world. The renderer never feeds the ledger (invariant,
 not a dial). Of search results, only the result actually quoted/used
+reactivates — operationalized as **intentional name-match**: a search
+re-activates a topic when the query names it (the Matthew-effect guard:
+incidental fan hits on shared words do not count). The literal reading
+("only the result the agent quotes back") is unrecordable in this
+benchmark — models do not cite message ids in answers — and the
+recorded search log (query, result ids, matched topics) reconstructs
+the name-match arm exactly (v2.2 amendment; see lit-review).
 re-activates; incidental FTS hits on common names do not. Without this, the
 resident set becomes self-sustaining (rendered → mentioned → used →
 rendered) — a Matthew effect freezing whatever got rendered early.
@@ -285,10 +292,10 @@ unconstrained grid produces meaningless cells).
 | `COMPOSITION_DETAIL` | max | tune | durable core = most consequential descendant |
 | `SEAL_AFTER_TEETH` | 30 | tune | identity decays slowest but not never; only meaningful in mega-scale regimes |
 | `STALE_STATUS_TEETH` | 15 | tune | zombie-status retirement (§4) |
-| `CLOCK` | teeth | diagnostic | teeth: forgetting tracks context displacement; teeth+virtual-idle: wall-time dormancy also counts. Choose before collection — the clock is baked into recorded use logs |
-| `REAUDIT_GAP` | 3 teeth | tune (live-anchored) | extraction-miss recovery; audit outputs precomputed per segment at collection time, so sweeps replay cached appends |
-| `USE_SOURCES` | exogenous | diagnostic | exogenous-only is the theory; +rendered and +any-hit are ossification controls demonstrating the Matthew effect |
-| `SEARCH_REACTIVATES` | quoted-only | diagnostic | quoted-only is the testing effect; any-hit is the fan-noise control; off is the clean-instrument control (§7) |
+| `CLOCK` | teeth | diagnostic (NOT offline-sweepable) | teeth+virtual-idle is unimplemented: all aging is tooth-integer arithmetic, the recording carries per-tooth timestamps only (no per-use stamps), and `rerender_from_recording` rejects clock overrides |
+| `REAUDIT_GAP` | 3 teeth | tune (live-anchored; NOT offline-sweepable) | extraction-miss recovery; audits run at collection time and their outputs (with audit-time teeth and prompt state) are baked into the recording — a different gap cannot be counterfactually re-run; `rerender_from_recording` rejects gap overrides |
+| `USE_SOURCES` | exogenous | diagnostic (reserved; NOT offline-sweepable) | exogenous-only is the theory and the only implemented value: use events are tagged segment/search (the segment IS the exogenous stream). +rendered contradicts the renderer-never-feeds invariant; the interesting arm (drop search uses) is `SEARCH_REACTIVATES=off` |
+| `SEARCH_REACTIVATES` | quoted-only | diagnostic (sweeps offline) | quoted-only is the testing effect; any-hit is the fan-noise control; off is the clean-instrument control (§7). All three arms rebuild offline from the recorded search log (query, result ids, matched topics) |
 
 Invariants (not dials): the renderer never feeds the ledger; the ledger is
 never edited; the archive is never cut; the anti-closure footer always
@@ -300,17 +307,23 @@ the assembled view never exceeds budget under exact accounting (§3.4).
 The "collect once, sweep many" contract requires the live replay to
 record, beyond the ledger itself:
 
-1. **Absolute token positions** per message (sweeping `RESIDENT_BUDGET`
-   changes tooth boundaries — the trigger prices the back at its cap, so a
-   different cap is a different clock grid; tooth indices alone cannot
-   re-tooth).
-2. **Source-tagged use events** (user / tool-result / agent-action) —
-   required to sweep `USE_SOURCES` and `SEARCH_REACTIVATES`.
-3. **Timestamps and idle gaps** — required for `CLOCK=teeth+virtual-idle`.
-4. **Full search logs with quoted spans** — required to distinguish
-   quoted-hit reactivation from incidental fan hits.
-5. **Cached per-segment audit outputs** (§3.7) — required to sweep
-   `REAUDIT_GAP` offline.
+1. **Token positions** per tooth (cumulative archived tokens; per-message
+   positions would allow re-toothing, which is moot while
+   `RESIDENT_BUDGET` is clamped to `BACK_TOKENS` — a letter deviation,
+   accepted).
+2. **Source-tagged use events** (`segment` / `search` — the theory's
+   user/tool-result/agent-action trichotomy collapses to this two-valued
+   tag; accepted deviation) — sufficient to sweep `SEARCH_REACTIVATES`.
+3. **Per-tooth timestamps** (the teeth+virtual-idle clock arm would need
+   per-use stamps; unimplemented, see the dial table).
+4. **Full search logs** (query, result ids, matched topics) — sufficient
+   to rebuild every `SEARCH_REACTIVATES` arm offline; literal quoted
+   spans are not recorded (models do not cite ids in answers; see the
+   §3.6 name-match amendment).
+5. **Cached audit outputs** — replayed at their recorded teeth under any
+   render dial, but the gap itself is live-anchored: audits ran at
+   collection time and their outputs are baked in (see the dial table);
+   `REAUDIT_GAP` is not counterfactually sweepable.
 6. **Per-tooth rung assignment logs** — the primary identification signal
    (§5.2).
 

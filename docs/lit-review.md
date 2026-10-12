@@ -404,3 +404,19 @@ workstream-level L2 rung). Probe reactivity observed live exactly as
 predicted: the currency probe's 34 searches re-activated five sealed
 workstreams, unsealing them for the following question -- offline
 scoring or probe-order randomization stays mandatory for collection.
+
+Pre-collection SME pass (two reviewers): fidelity verdict FIDELITY-GAPS,
+sweep verdict SWEEP-GAPS -- every finding doc-hygiene or sweep-harness,
+none change what collection records. Folded in: quoted-only :=
+intentional name-match (§3.6 v2.2 amendment; literal quote-back spans
+are unrecordable and the recorded search log rebuilds the arm exactly);
+REAUDIT_GAP / CLOCK / USE_SOURCES marked collection-time and
+non-sweepable -- rerender_from_recording now RAISES on their override
+instead of silently rendering an unchanged block a sweep would misreport
+as "no effect"; SEARCH_REACTIVATES off/any-hit arms rebuilt offline from
+the recorded search log (snapshot indices bypassed for synthesized
+streams). Deviation block extended (triage force-seal of active
+workstreams, composition = max member activation, supersession/tree
+repair absent, raw-FTS search without alias or ledger-weight ranking).
+One render-dial coverage gap closed per reviewer (composition_detail
+'mass' and activation_form 'exp' now order-flip-tested).
