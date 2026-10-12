@@ -469,3 +469,13 @@ naming-in-first-half now measures answer curation, not memory loss --
 future collections should read it alongside currency (the memory
 probe) or re-introduce mid-session topic activity before treating a
 low continuity score as failure.
+
+### LongMemEval partial run (key cap, 2026-12)
+
+Full 500 x 3 arms died at the OpenRouter key total cap (8204/8245 credits):
+big-prompt arms refused pre-flight, LCM's smaller calls squeezed through.
+289 healthy pairs (early samples, n~100/arm, official judge) showed a close
+three-way race -- ledger5 0.68 / LCM 0.73 / flat 0.68; LCM's edge =
+multi-session aggregation (0.65 vs 0.53/0.38), flat won temporal (0.50).
+Not a benchmark number (early-sample bias); retained here as the hypothesis
+the dev25 loop tests. Bad/partial data deleted; dev25 iteration begins.

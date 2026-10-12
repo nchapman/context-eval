@@ -162,7 +162,7 @@ class _Ledger4Line:
             rest = m.group("rest")
         else:
             self.topic, self.kind, rest = "", "note", line.strip()
-        if self.kind not in ("note", "open", "resolved", "paused", "in progress"):
+        if self.kind not in ("note", "decision", "profile", "open", "resolved", "paused", "in progress"):
             # off-vocabulary status word ('shipped', 'done', ...): keep the
             # observation as a note rather than dropping the whole line
             rest = f"{self.kind}: {rest}"
@@ -969,11 +969,12 @@ Every line belongs to a WORKSTREAM (the durable project it serves, a handful per
 Output ONLY a bullet list, one per line, in exactly one of three forms:
 - WORKSTREAM/topic | note | the observation [§<ids>]
 - WORKSTREAM/topic | decision | what was chosen or agreed, and why [§<ids>]
+- WORKSTREAM/topic | profile | durable fact about the user themselves [§<ids>]
 - WORKSTREAM/topic | <status> | what changed and why [§<ids>]
 Rules:
 - WORKSTREAM comes from the WORKSTREAMS vocabulary where one fits, verbatim. Coin a new one ONLY when the segment starts a genuinely new project. Never coin one per file, task, or gate.
 - TOPIC is one short canonical name per sub-stream; reuse KNOWN TOPICS verbatim where they fit.
-- note = findings, measurements, next steps. decision = a deliberate choice, commitment, or agreement that future work depends on. The status form (open, resolved, paused, in progress) is reserved for deliberate state changes: a decision landed, work shipped, something blocked or set aside — and says what and why. Never stamp a status on a note or decision.
+- note = findings, measurements, next steps. decision = a deliberate choice, commitment, or agreement that future work depends on. profile = who the user is and prefers: their field or role, sustained interests shown across turns, explicit likes/dislikes and constraints -- one line per distinct preference, so future open-ended requests can be grounded in it. The status form (open, resolved, paused, in progress) is reserved for deliberate state changes: a decision landed, work shipped, something blocked or set aside — and says what and why. Never stamp a status on a note or decision.
 - At most ~5 lines per topic in this segment; keep what would most change what the agent does next; fold related details into one line.
 - EXCEPTION, never skipped and exempt from the budget: a one-line topic/status mention (any speaker, any surface -- chat, tool output, even a trailing "[status] x: paused" annotation) is ALWAYS its own line under a workstream named for that codename -- quoted nicknames ('corvid') and tracker ids (NOVA-11, FIRE-1147) alike. It is NEVER a note under another workstream, even when the rest of the segment is about something else. Several distinct codenames in one segment: one line each, with the state-change form when a status is stated.
 - At most 15 words; keep every value that gates future work (ids, numbers, versions, paths). Never quote the transcript.
@@ -981,7 +982,7 @@ Rules:
 {known_topics}Segment:
 {segment}"""
 
-_V5_KINDS = ("note", "decision", "open", "resolved", "paused", "in progress")
+_V5_KINDS = ("note", "decision", "profile", "open", "resolved", "paused", "in progress")
 _V5_STATE_KINDS = ("open", "resolved", "paused", "in progress")
 
 _V5_ROW = re.compile(

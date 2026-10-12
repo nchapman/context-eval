@@ -536,3 +536,21 @@ class TestBackBlockHardCap:
         grow_drive(eng, s, 400)
         cost = eng.counter.count_text(s._back_text)
         assert cost <= BACK_TOKENS - eng.counter.count_text(_HEADER) - 2
+
+
+class TestProfileKind:
+    def test_profile_row_parses_as_ledger_line(self):
+        from context_eval.strategies.sawtooth import _Ledger5Line
+
+        raw = ("- career/research | profile | works in DL for medical "
+               "image analysis, wants advanced material [§77]")
+        ln = _Ledger5Line(0, raw)
+        assert ln.kind == "profile"
+        assert "medical image" in ln.text
+
+    def test_profile_not_demoted_to_note(self):
+        from context_eval.strategies.sawtooth import _Ledger5Line
+
+        raw = "reading/prefs | profile | prefers fantasy over sci-fi [§12]"
+        ln = _Ledger5Line(0, raw)
+        assert ln.kind == "profile" and "profile:" not in ln.text

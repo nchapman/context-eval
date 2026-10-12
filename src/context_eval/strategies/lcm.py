@@ -84,8 +84,10 @@ _D1_PROMPT = (
     f"""Summarize this segment of an agent session (coding, chat, or mixed) for
 future reference.
 Preserve exactly: the task/goal, key decisions and why, file paths touched,
-commands run and their outcomes, errors and resolutions, and every specific
-value (ids, tokens, numbers, names, versions).
+commands run and their outcomes, errors and resolutions, every specific
+value (ids, tokens, numbers, names, versions), and who the user is and
+prefers (field or role, sustained interests shown across turns, explicit
+likes/dislikes and constraints).
 Mark where each fact came from as [§<id>]. Keep the whole summary under
 ~{SUMMARY_WORDS} words, including any final topic-inventory line.
 """
