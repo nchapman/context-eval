@@ -397,6 +397,26 @@ naming/status lines were extracted under other topics or missed), not
 index saturation. The recall boundary (~60-70%, unchanged from
 ledger4) is now the limiter for uncued enumeration -- the theory's
 stated boundary, with search as the cued-recall recovery route.
+
+Extraction-recall iteration (bench, post-collection): replaying only
+the recorded chunks that carry seeded mentions (frozen live
+known-topics context, ~60 calls per run-variant) partitioned the loss
+further. (1) Scoping class (mis-filed codename mentions, 6/40 topics):
+fixed by the any-speaker/any-surface codename clause -- bench topic
+capture 5/10->8/10 (a-s1) and 2/10->7/10 (a-s2), controls stable; a
+status-update rule variant REGRESSED (4/10, hallucinated statuses) and
+was dropped -- the never-stamp-a-note guard rail matters. (2) Crowding
+class: 11/12 wrong-status topics had their flip chunk covered at chunk
+granularity (one citing line suppresses the whole-chunk audit); a
+message-granularity second look (re-read uncited short tool messages,
+median 12K chars/tooth, +29% extraction cost) is the candidate fix,
+unproven on the bench (its one apparent fix was first-pass variance;
+the decisive chunk hit a bench-specific empty response). (3) A third
+of the apparent misses were a benchmark artifact: status-bearing
+naming lines landing after the currency flip made gold contradict the
+latest evidence -- fixed at injection (naming now lands in the first
+half), invalidating 2-3 topics per run of the collected scores' wrong
+currency answers.
 Currency 0.00 exposed a design bug, fixed same day: the sealed tier
 rendered names only, so cued-status probes answered "sealed" instead
 of the status; the sealed line now carries name + last status (the

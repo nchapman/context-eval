@@ -1,9 +1,11 @@
 # Resident Memory for Long-Horizon Agents: Theory, Law, and Dials
 
-Status: theory v2.1 — incorporates SME review passes 1 (activation-law
+Status: theory v2.3 — incorporates SME review passes 1 (activation-law
 lineage, single-locus weight, use-semantics, anti-closure contract,
 lifecycle, re-encoding audit) and 2 (recording schema, sealing predicate,
-allocation policy, identification strategy, prediction repairs).
+allocation policy, identification strategy, prediction repairs); v2.3
+amends the extraction-recall boundary after the bench-driven iteration
+(§3.2).
 
 ## 1. The problem
 
@@ -37,6 +39,23 @@ Measured ground truth from this benchmark (all cells n>=6, see README R1-R11):
   authoritative memory actively *harms* absence probes ("never happened",
   injection-distrust — R9c).
 - **Birth-time extraction is stochastic**: single-mention recall ~60-70%.
+  v2.3 refinement: the loss partitions into two mechanism classes, both
+  prompt-addressable in part — (a) *scoping*: codename mentions inside a
+  segment dominated by other work got filed under the dominant workstream
+  (6/40 seeded topics across the collection); the any-speaker/any-surface
+  codename clause (NEVER a note under another workstream) eliminated this
+  class on the extraction bench (5/10→8/10 and 2/10→7/10 topic capture,
+  controls stable); and (b) *crowding*: a one-line status annotation in a
+  64K-char chunk can lose the allocation fight to dense work output even
+  when the prompt exempts it — 11/12 wrong-status topics had their flip
+  chunk marked covered (any line citing any message suppresses the
+  whole-chunk audit), so the audit never re-read it. The chunk-granularity
+  coverage rule is the residual structural gap; a message-granularity
+  "second look" (re-read uncited short tool messages) is the candidate fix,
+  unproven on the bench. A third class proved to be a benchmark artifact,
+  not extraction: naming lines landing after the currency flip made gold
+  contradict the latest evidence (fixed at the injection layer; naming now
+  lands in the first half).
 
 The theory must explain these, not just tolerate them.
 

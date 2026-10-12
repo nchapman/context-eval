@@ -185,6 +185,14 @@ def main() -> None:
         completion = llm.complete(
             [{"role": "user", "content": prompt}], **summary_call_kwargs()
         )
+        # fp8 routing intermittently returns empty 200s under rapid cadence
+        # (live never sees this: empty_summaries=0 across 2000+ extractions);
+        # one retry keeps the bench measuring extraction, not routing noise
+        if not (completion.text or "").strip():
+            time.sleep(max(args.sleep, 1.0))
+            completion = llm.complete(
+                [{"role": "user", "content": prompt}], **summary_call_kwargs()
+            )
         got = []
 
         def _parse(text: str) -> list[dict]:
@@ -219,6 +227,11 @@ def main() -> None:
                 comp2 = llm.complete(
                     [{"role": "user", "content": p2}], **summary_call_kwargs()
                 )
+                if not (comp2.text or "").strip():
+                    time.sleep(max(args.sleep, 1.0))
+                    comp2 = llm.complete(
+                        [{"role": "user", "content": p2}], **summary_call_kwargs()
+                    )
                 second = _parse(comp2.text)
                 got.extend(second)
                 time.sleep(args.sleep)
