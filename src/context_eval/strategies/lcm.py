@@ -198,6 +198,11 @@ class LCMDagger(Strategy):
             )
             self._escalations += 1
 
+        # Boundary context for the next chunk: the tail of this one is
+        # prepended as context so topics spanning a frontier keep their
+        # anchor (context only -- messages are not re-archived).
+        self._context_tail = chunk[-3:]
+
         self._nodes.append(
             _Node(
                 depth=1,
@@ -215,7 +220,15 @@ class LCMDagger(Strategy):
         # Full content: the chunk is already bounded by chunk_target, and
         # truncating here would hide deep content (and injected needles)
         # from the summary while flat-compact's summarizer sees everything.
-        segment = "\n".join(f"[§{m.id} {m.role.value}] {m.content}" for m in chunk)
+        # Boundary overlap: the previous chunk's last few messages are
+        # context (CONTEXT:), not content to re-summarize as new.
+        ctx = "".join(
+            f"[§{m.id} {m.role.value}] {m.content}\n"
+            for m in getattr(self, "_context_tail", ())
+        )
+        segment = ctx + ("CONTEXT ENDS --\n" if ctx else "") + "\n".join(
+            f"[§{m.id} {m.role.value}] {m.content}" for m in chunk
+        )
         try:
             completion = engine.llm.complete(
                 [{"role": "user", "content": _D1_PROMPT.format(segment=segment)}],

@@ -381,3 +381,30 @@ class TestSummaryCallKwargs:
         finally:
             monkeypatch.delenv("CONTEXT_EVAL_SUMMARIZER_REASONING")
             importlib.reload(m)
+
+
+class TestBoundaryOverlap:
+    def test_second_chunk_prompt_carries_context_tail(self):
+        from context_eval.strategies.lcm import LCMDagger
+
+        store = TranscriptStore()
+        fill_turns(store, 60)  # ~2520 tokens: first on_turn crosses soft
+        llm = ScriptedLLM(texts=["s1 [§m000001]", "s2 [§m000004]"])
+        engine = make_engine(store, 3_000, llm)
+        strategy = LCMDagger()
+        strategy.on_turn(engine)
+        assert len(llm.calls) == 1  # first chunk: no context yet
+        assert "CONTEXT ENDS" not in llm.calls[0]
+        fill_turns(store, 40)  # more history: next tooth crosses soft again
+        strategy.on_turn(engine)
+        # first call of this tooth summarizes the next chunk, with the
+        # previous chunk's tail as context (later calls may consolidate)
+        new_calls = llm.calls[1:]
+        assert "CONTEXT ENDS" in new_calls[0]
+        # the ids before CONTEXT ENDS also appeared in the first chunk's
+        # prompt: they are overlap context, not new messages
+        ctx = new_calls[0].split("CONTEXT ENDS")[0]
+        import re as _re
+
+        ctx_ids = set(_re.findall(r"§(m\d+)", ctx))
+        assert ctx_ids and ctx_ids.issubset(set(_re.findall(r"§(m\d+)", llm.calls[0])))

@@ -52,6 +52,12 @@ from context_eval.types import PromptMessage, Role, Usage
 HEAD_TOKENS = 12_000  # verbatim head, identical across modes
 BACK_TOKENS = 4_096  # resident memory block cap, identical across modes
 MAX_SPAN_CHARS = 64_000  # per-call extraction/summary chunk (chars)
+# Boundary overlap: each chunk after the first repeats the tail of the
+# previous one as context. Topics spanning a boundary lose their anchor
+# otherwise (dev25: a user-field preference stated at a chunk's last message
+# had its 11-message evidence in the next chunk, so no profile line was
+# extracted and the recommendation question went ungrounded).
+CHUNK_OVERLAP_CHARS = 2_000
 
 # Tuned extraction (v2): naming continuity against the running inventory,
 # per-topic budget, and action-weighted phrasing. Targets the qualitative
@@ -278,7 +284,13 @@ class SawtoothBack(Strategy):
 
     def _chunks(self, span) -> list[str]:
         text = self._segment_text(span)
-        return [text[i : i + MAX_SPAN_CHARS] for i in range(0, len(text), MAX_SPAN_CHARS)]
+        if len(text) <= MAX_SPAN_CHARS:
+            return [text]
+        out = []
+        for i in range(0, len(text), MAX_SPAN_CHARS):
+            tail = out[-1][-CHUNK_OVERLAP_CHARS:] if out else ""
+            out.append(tail + text[i : i + MAX_SPAN_CHARS])
+        return out
 
     def _complete(self, engine: Engine, prompt: str) -> str:
         completion = engine.llm.complete(
