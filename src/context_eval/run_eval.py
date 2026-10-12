@@ -43,6 +43,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="topic markers per sample; adds one uncued continuity question")
     parser.add_argument("--max-questions", type=int, default=0, help="cap per sample (0 = all)")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--shard", default=None,
+                        help="process shard i of n as 'i/n' (0-based); enables "
+                             "parallel workers on independent samples")
     parser.add_argument("--out", type=Path, default=Path("results/run.jsonl"))
     parser.add_argument("--skip-locomo-qa", action="store_true")
     parser.add_argument("--trace-qa", type=Path, default=None,
@@ -150,6 +153,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.samples and len(samples) > args.samples:
         rng = random.Random(args.seed)
         samples = rng.sample(samples, args.samples)
+    if args.shard:
+        try:
+            i, n = (int(x) for x in args.shard.split("/"))
+            if not (0 <= i < n):
+                raise ValueError
+        except ValueError:
+            print(f"bad --shard {args.shard!r}; expected i/n with 0 <= i < n", file=sys.stderr)
+            return 2
+        samples = samples[i::n]
 
     budgets = [int(b) for b in args.budgets.split(",")]
     strategy_names = [s.strip() for s in args.strategies.split(",") if s.strip()]

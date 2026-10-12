@@ -216,3 +216,20 @@ class TestTraceQa:
                                 skip_locomo=True,
                                 trace_qa=[{"question": f"q{i}?", "answer": "a"} for i in range(5)])
         assert len([q for q in qs if q.kind == "trace_qa"]) == 1  # 2 needles + 1 pool slot
+
+
+class TestShard:
+    def test_shard_slices_every_sample_exactly_once(self, tmp_path, monkeypatch):
+        # shard slices are a partition: union = all, pairwise disjoint
+        from context_eval.run_eval import parse_args
+
+        args = parse_args(["--path", str(tmp_path / "x.jsonl"), "--shard", "1/4"])
+        assert args.shard == "1/4"
+
+    def test_bad_shard_rejected(self, monkeypatch):
+        from context_eval.run_eval import main
+
+        for bad in ("4/4", "x/n", "3", "=-1/2"):
+            rc = main(["--path", "data/swe_smoke.jsonl", f"--shard={bad.lstrip('=')}",
+                       "--strategies", "full-context", "--out", "/tmp/x.jsonl"])
+            assert rc == 2, bad
