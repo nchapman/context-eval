@@ -236,6 +236,14 @@ def _score_longmemeval(question: Question, prediction: str, llm, usage=None) -> 
     verdict = (completion.text or "").strip().upper()
     verdict = " ".join(verdict.split())
     m = re.match(r"^\W*(YES|NO)\b", verdict)
+    if not m and not verdict and (completion.reasoning or "").strip():
+        # Reasoning-only verdicts (reasoning-off is a request, not a
+        # guarantee): the concluding verdict typically lives on the last
+        # reasoning line -- same recovery the driver applies to answers.
+        lines = [ln.strip() for ln in completion.reasoning.splitlines() if ln.strip()]
+        if lines:
+            hits = list(re.finditer(r"\b(YES|NO)\b", lines[-1].upper()))
+            m = hits[-1] if hits else None
     if m:
         return Score(1.0 if m.group(1) == "YES" else 0.0, "longmemeval_judge")
     print(

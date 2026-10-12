@@ -16,7 +16,8 @@
 
 set -euo pipefail
 
-n=$1; shift
+n=${1:?usage: run_sharded.sh <n_workers> <run_eval args...>; --out required}
+shift
 out=""
 args=("$@")
 for i in "${!args[@]}"; do

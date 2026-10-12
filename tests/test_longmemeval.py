@@ -185,12 +185,34 @@ class TestJudge:
 
     def test_integer_gold_does_not_crash_fallbacks(self):
         from context_eval.judge import score_question
+        from context_eval.questions import Question
 
-        q = self._q()
-        q = type(q)(kind="longmemeval", question="How many?", answer=3,
-                    category="multi-session", meta={}) if not isinstance(q.answer, str) else q
+        q = Question(kind="longmemeval", question="How many?", answer=3,
+                     category="multi-session", meta={})
         sc = score_question(q, "three", llm=_FakeLLM("Maybe so."))
         assert sc.method == "longmemeval_f1_fallback"
+        assert score_question(q, "3", llm=None).method == "longmemeval_f1_fallback"
+
+    def test_reasoning_only_verdict_is_recovered(self):
+        from context_eval.judge import score_question
+        from context_eval.questions import Question
+
+        class _ReasoningOnly:
+            text = ""
+            reasoning = "Let me check the response.\nIt matches, so: Yes"
+            usage = None
+
+            def __getattribute__(self, name):
+                return object.__getattribute__(self, name)
+
+        class _LLM:
+            def complete(self, *a, **kw):
+                return _ReasoningOnly()
+
+        q = Question(kind="longmemeval", question="Q?", answer="A",
+                     category="multi-session", meta={})
+        sc = score_question(q, "A", llm=_LLM())
+        assert (sc.value, sc.method) == (1.0, "longmemeval_judge")
 
     def test_judge_usage_accumulates(self):
         from context_eval.judge import score_question
