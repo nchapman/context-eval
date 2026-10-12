@@ -1145,16 +1145,20 @@ def _l5_emit(active, sealed, kept, dials, counter, cap) -> str:
 def _l5_index(lines, uses, tooth, dials):
     """Group facts into topics and workstreams; compute the law.
 
-    Lines born after `tooth` are excluded: the render is a view of the
-    ledger AS IT WAS at that tooth (counterfactual sweeps replay early
-    teeth; the live arm always renders at the newest tooth, where the
-    filter is a no-op)."""
+    Lines born at or after `tooth` are excluded, and the boundary is
+    deliberately one tooth tighter than the uses filter: extraction
+    stamps a line with the POST-increment tooth (T) while renders happen
+    at _teeth + 1 (T+1), so a line born at tooth R first appears in the
+    render at R+1 -- while question-time searches legitimately stamp
+    uses AT the render tooth. (The render is a view of the ledger AS IT
+    WAS at that tooth; the live arm always renders at the newest tooth,
+    where the filter is a no-op.)"""
     groups: dict[str, list] = {}
     names: dict[str, tuple[str, str]] = {}
     for ln in lines:
         if not ln.umbrella or not ln.topic:
             continue
-        if ln.tooth > tooth:
+        if ln.tooth >= tooth:
             continue  # not born yet -- no clairvoyance in sweeps
         key = f"{ln.umbrella}/{ln.topic}".casefold()
         groups.setdefault(key, []).append(ln)
@@ -1371,7 +1375,25 @@ def rerender_from_recording(
         upto = last_render.get("uses_upto", len(rec["uses"])) if last_render else 0
         use_events = rec["uses"][:upto]
     else:
-        use_events = rec["uses"]
+        # a render at tooth R happens with _teeth = R-1, so the R-th
+        # compaction's segment uses/lines did not exist yet; only
+        # question-time SEARCH uses legitimately stamp at the render
+        # tooth. Prefer the render's own uses_upto snapshot when one was
+        # recorded at this tooth (exact, incl. mid-tooth search state);
+        # interpolate source-aware for unrecorded teeth.
+        snap = next(
+            (r["uses_upto"] for r in reversed(rec["renders"])
+             if r["render_tooth"] == tooth and "uses_upto" in r),
+            None,
+        )
+        if snap is not None:
+            use_events = rec["uses"][:snap]
+        else:
+            use_events = [
+                u for u in rec["uses"]
+                if (u["tooth"] < tooth if u.get("source") == "segment"
+                    else u["tooth"] <= tooth)
+            ]
     lines = [_Ledger5Line.from_record(d) for d in rec["lines"]]
     uses: dict[str, list[int]] = {}
     for u in use_events:

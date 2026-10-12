@@ -475,6 +475,8 @@ class TestStrategyWiring:
         for i in range(600):
             eng.store.append(Role.TOOL, f"obs {i} " + "x" * 300)
             s.on_turn(eng)
+            if i % 120 == 100:
+                s._back_block5(eng)  # mid-session renders: multiple teeth
         live = s._back_block5(eng)
         rec = s.recording()
         for key in ("version", "dials", "teeth", "lines", "uses", "searches",
@@ -484,6 +486,16 @@ class TestStrategyWiring:
         assert rec["teeth"][-1]["archived_tokens"] > 0
         block, _ = rerender_from_recording(rec, counter())
         assert block == live
+        # the SWEEP contract, stronger than the final-render roundtrip:
+        # every recorded render replays byte-exact at its own tooth. A
+        # render at tooth R must not contain lines born at tooth R --
+        # this is the assertion that catches the birth-filter off-by-one
+        # (the final render alone cannot: no line is ever born at the
+        # final render's tooth).
+        assert len(rec["renders"]) >= 3  # session long enough to bind
+        for r in rec["renders"]:
+            replay, _ = rerender_from_recording(rec, counter(), tooth=r["render_tooth"])
+            assert replay == r["block"], f"render at tooth {r['render_tooth']} diverged"
 
     def test_roundtrip_stable_under_post_render_searches(self):
         """Regression (review): question-time searches append uses AFTER
@@ -507,10 +519,18 @@ class TestStrategyWiring:
         rec = s.recording()
         block, _ = rerender_from_recording(rec, counter())
         assert block == recorded  # snapshot: the search use cannot leak in
-        # the sweep path sees all uses -- the re-activation changes the view
+        # the explicit-tooth sweep at the SAME render tooth is now also
+        # exact (it prefers the render's own snapshot): a post-render
+        # search did not exist at that render and must not count
         tooth = rec["renders"][-1]["render_tooth"]
         swept, _ = rerender_from_recording(rec, counter(), tooth=tooth)
-        assert swept != recorded
+        assert swept == recorded
+        # ...but the snapshot hides data rather than discarding it: one
+        # tooth later the search use legitimately counts (search uses may
+        # stamp at the render tooth), and the re-activated aged topic
+        # resurfaces
+        later, _ = rerender_from_recording(rec, counter(), tooth=tooth + 1)
+        assert later != recorded
 
     def test_sweep_excludes_lines_born_after_tooth(self):
         """Regression (pre-collection gate): _l5_index filtered USES by
@@ -527,8 +547,13 @@ class TestStrategyWiring:
         early, _ = render(lines, uses, tooth=10)
         assert "corvid" in early
         assert "zeta" not in early  # not born yet -- must not appear
-        late, _ = render(lines, uses, tooth=160)
-        assert "zeta" in late  # ...but present once its tooth arrives
+        # boundary: a line born AT the render tooth is still future --
+        # extraction stamps the post-increment tooth, renders happen at
+        # _teeth+1, so tooth-R lines first appear in the R+1 render
+        boundary, _ = render(lines, uses, tooth=150)
+        assert "zeta" not in boundary
+        after, _ = render(lines, uses, tooth=151)
+        assert "zeta" in after  # ...but present one tooth later
 
     def test_sweep_mutates_dials_deterministically(self):
         """The actual purpose of the substrate: same ledger, new dials,

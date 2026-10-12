@@ -200,7 +200,11 @@ def main(argv: list[str] | None = None) -> int:
                             f"{args.out.stem}.{result.strategy}."
                             f"{result.budget_tokens}.{safe_id}.recording.json"
                         )
-                        sidecar.write_text(json.dumps(result.recording, default=str))
+                        # atomic: a crash mid-write must not leave a truncated
+                        # recording that later sweeps silently consume
+                        tmp = sidecar.with_suffix(".recording.json.tmp")
+                        tmp.write_text(json.dumps(result.recording, default=str))
+                        tmp.replace(sidecar)
                     grouped[(name, budget)].append(result)
                     runs += 1
                     status = (
