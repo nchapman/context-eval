@@ -975,7 +975,7 @@ Rules:
 - TOPIC is one short canonical name per sub-stream; reuse KNOWN TOPICS verbatim where they fit.
 - note = findings, measurements, next steps. decision = a deliberate choice, commitment, or agreement that future work depends on. The status form (open, resolved, paused, in progress) is reserved for deliberate state changes: a decision landed, work shipped, something blocked or set aside — and says what and why. Never stamp a status on a note or decision.
 - At most ~5 lines per topic in this segment; keep what would most change what the agent does next; fold related details into one line.
-- EXCEPTION, never skipped and exempt from the budget: a one-line topic/status mention by the user (e.g. "the admin revamp is 'corvid', paused") is ALWAYS its own line — its own workstream if no existing one fits — with the state-change form when a status is stated.
+- EXCEPTION, never skipped and exempt from the budget: a one-line topic/status mention (any speaker, any surface -- chat, tool output, even a trailing "[status] x: paused" annotation) is ALWAYS its own line under a workstream named for that codename -- quoted nicknames ('corvid') and tracker ids (NOVA-11, FIRE-1147) alike. It is NEVER a note under another workstream, even when the rest of the segment is about something else. Several distinct codenames in one segment: one line each, with the state-change form when a status is stated.
 - At most 15 words; keep every value that gates future work (ids, numbers, versions, paths). Never quote the transcript.
 - A topic reappearing in a later segment is a new line.
 {known_topics}Segment:

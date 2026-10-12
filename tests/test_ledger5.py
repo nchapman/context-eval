@@ -757,3 +757,23 @@ class TestStrategyWiring:
         row = s._rec5["rungs"][0]
         for field in ("tooth", "ws", "topic", "status", "kept", "sealed", "act"):
             assert field in row
+
+
+class TestExtractPrompt:
+    """The v1-codename clause (bench-validated on the collection runs)
+    must stay in the shipped prompt: codename mentions are their own line,
+    never a note under another workstream."""
+
+    def test_codename_exception_clause(self):
+        from context_eval.strategies.sawtooth import _EXTRACT_PROMPT_V5
+
+        assert "any surface" in _EXTRACT_PROMPT_V5
+        assert "tracker ids" in _EXTRACT_PROMPT_V5
+        assert "NEVER a note under another workstream" in _EXTRACT_PROMPT_V5
+        assert "one line each" in _EXTRACT_PROMPT_V5
+        # template slots intact
+        assert "{known_topics}" in _EXTRACT_PROMPT_V5
+        assert "{segment}" in _EXTRACT_PROMPT_V5
+        # the guard rails survived the edit
+        assert "At most 15 words" in _EXTRACT_PROMPT_V5
+        assert "Never stamp a status on a note" in _EXTRACT_PROMPT_V5

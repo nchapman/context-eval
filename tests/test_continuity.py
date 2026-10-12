@@ -99,3 +99,46 @@ class TestBuildQuestions:
     def test_no_topics_no_continuity(self):
         _, qs = build_questions(chat_sample(), needles=4, seed=1, max_q=0, skip_locomo=True)
         assert all(q.kind != "continuity" for q in qs)
+
+
+class TestNamingPlacement:
+    """Naming mentions must precede the currency flip zone.
+
+    The [status] flip (55-75% depth) defines gold; a status-bearing naming
+    line landing AFTER its flip makes gold contradict the latest evidence
+    (chronology conflict found in the collection runs, e.g. corvid/sundial
+    in mega-a-s1). Regression: markers used to spread over the whole
+    session.
+    """
+
+    def test_naming_mentions_land_in_first_half(self):
+        import random
+
+        s, seeded, _ = inject_topics(chat_sample(), 8, random.Random(3))
+        assert seeded
+        half = len(s.messages) / 2
+        idx = [
+            i
+            for i, m in enumerate(s.messages)
+            if any(t in m.content for t in seeded)
+        ]
+        assert idx and all(i < half for i in idx)
+
+    def test_naming_before_flip_after_currency_wiring(self):
+        _, qs = build_questions(
+            chat_sample(n_user=60), needles=0, seed=11, max_q=0,
+            skip_locomo=True, topics=8, probes="currency",
+        )
+        cur = next(q for q in qs if q.kind == "currency")
+        gold = dict(p.split(":") for p in cur.answer.split(" | "))
+        texts = [m.content for m in _.messages]
+        for t, status in gold.items():
+            naming = next(
+                (i for i, c in enumerate(texts) if t in c and "[status]" not in c), None
+            )
+            flip = next(
+                (i for i, c in enumerate(texts) if f"[status] {t}: {status}" in c), None
+            )
+            assert flip is not None, t
+            assert naming is not None, t
+            assert naming < flip, f"{t}: naming@{naming} after flip@{flip}"

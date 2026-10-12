@@ -162,11 +162,21 @@ def inject_topics(
     """
     if count <= 0:
         return sample, [], []
+    # Naming mentions stay in the FIRST HALF of the session: the currency
+    # flip zone starts at 55%, and a status-bearing naming line landing
+    # after its flip makes the flip's gold contradict the latest evidence.
+    half = len(sample.messages) // 2
     eligible = [
         i
-        for i, m in enumerate(sample.messages)
+        for i, m in enumerate(sample.messages[:half])
         if m.role in (Role.USER, Role.ASSISTANT) and not m.meta.get("needle")
     ]
+    if not eligible:  # tiny corpus: fall back to the full range
+        eligible = [
+            i
+            for i, m in enumerate(sample.messages)
+            if m.role in (Role.USER, Role.ASSISTANT) and not m.meta.get("needle")
+        ]
     if not eligible:
         return sample, [], []
     order = list(range(len(_TOPIC_SPECS)))
