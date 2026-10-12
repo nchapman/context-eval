@@ -188,6 +188,9 @@ class OpenRouterClient:
         if offset is not None and tags and len(tags) > 1:
             tags = (tags[offset % len(tags)],)
         self._provider_only = tags
+        # Full pool kept for 429 rotation (see complete()); the pinned tag
+        # is tags[0] of the pool when rotation enabled.
+        self._rotation_pool = tuple(provider_only) if provider_only else ()
         self._allow_fallbacks = allow_fallbacks
 
     def complete(
@@ -232,6 +235,11 @@ class OpenRouterClient:
         billed = Usage()
         escalations = 0
         result: Completion | None = None
+        rotation: tuple[str, ...] = ()  # pins to try after the current one
+        if self._rotation_pool and len(self._rotation_pool) > 1:
+            cur = self._provider_only or ()
+            i = self._rotation_pool.index(cur[0]) if cur and cur[0] in self._rotation_pool else 0
+            rotation = self._rotation_pool[i + 1 :] + self._rotation_pool[: i + 1]
         for attempt in range(attempts):
             try:
                 if self._stream:
@@ -247,6 +255,20 @@ class OpenRouterClient:
                     raise ProviderError(
                         f"transient ladder exceeded 900s wall budget: {last_error}"
                     ) from exc
+                # A pin that stays throttled blocks OpenRouter's own
+                # rerouting (only-listed upstream accepts then fails), so
+                # persistent 429s rotate to the next pinned provider
+                # instead of re-hitting the same pool for minutes.
+                pinned = bool(self._provider_only) and len(self._provider_only) == 1
+                if rotation and pinned and str(exc).find("429") != -1:
+                    body["provider"]["only"] = [rotation[0]]
+                    rotation = rotation[1:]
+                    print(
+                        f"[provider] pin throttled; rotating to {body['provider']['only'][0]}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    continue
                 if attempt < attempts - 1:
                     # Exponential with jitter, capped: 1s..~45s
                     wait = min(2.0**attempt, 45.0) * (0.5 + random.random())

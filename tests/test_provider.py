@@ -589,3 +589,60 @@ class TestProviderRotation:
         monkeypatch.delenv("CONTEXT_EVAL_PROVIDER_OFFSET")
         c2 = OpenRouterClient(provider_only=tags)
         assert c2._provider_only == tags
+
+
+class _RotatingFakeTransport:
+    """429s whatever provider is pinned first; serves the second."""
+
+    def __init__(self):
+        self.seen_pins = []
+
+    def complete(self, client, body):
+        pin = body["provider"]["only"][0]
+        self.seen_pins.append(pin)
+        from context_eval.provider import Completion
+
+        if pin == "a/fp8":
+            from context_eval.provider import _TransientProviderError
+
+            raise _TransientProviderError("HTTP 429: provider returned error")
+        from context_eval.types import Usage
+        return Completion(text="ok", finish_reason="stop", usage=Usage(),
+                          provider=pin, tool_calls=(), model="m")
+
+
+def test_429_rotation_moves_to_next_pinned_provider(monkeypatch):
+    from context_eval import provider as P
+    from context_eval.provider import OpenRouterClient
+
+    tags = ("a/fp8", "b/fp8", "c/fp8")
+    c = OpenRouterClient(provider_only=tags, provider_offset=0, stream=False)
+    assert c._provider_only == ("a/fp8",)  # pinned by offset
+    fake = _RotatingFakeTransport()
+    monkeypatch.setattr(c, "_post", lambda body: fake.complete(c, body))
+    monkeypatch.setattr(P.time, "sleep", lambda s: None)
+    result = c.complete([{"role": "user", "content": "hi"}])
+    assert result.text == "ok"
+    assert fake.seen_pins[0] == "a/fp8" and fake.seen_pins[1] == "b/fp8"
+
+
+def test_unpinned_client_does_not_narrow_on_429(monkeypatch):
+    from context_eval import provider as P
+    from context_eval.provider import OpenRouterClient
+
+    tags = ("a/fp8", "b/fp8")
+    c = OpenRouterClient(provider_only=tags, stream=False)  # no offset: multi-tag
+    assert c._provider_only == tags
+    calls = []
+
+    def post(body):
+        calls.append(body["provider"]["only"])
+        raise Exception("HTTP 429: throttled")
+
+    monkeypatch.setattr(c, "_post", post)
+    monkeypatch.setattr(P.time, "sleep", lambda s: None)
+    try:
+        c.complete([{"role": "user", "content": "hi"}])
+    except Exception:
+        pass
+    assert all(pins == list(tags) for pins in calls)  # never narrowed
