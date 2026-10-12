@@ -512,6 +512,24 @@ class TestStrategyWiring:
         swept, _ = rerender_from_recording(rec, counter(), tooth=tooth)
         assert swept != recorded
 
+    def test_sweep_excludes_lines_born_after_tooth(self):
+        """Regression (pre-collection gate): _l5_index filtered USES by
+        tooth but not LINES -- a tooth-40 render included lines born at
+        tooth 150, and the activation fallback (f.tooth, unfiltered)
+        rated them maximally hot. Sweeps must be counterfactual, not
+        clairvoyant: found by exercising the sweep path against the
+        recorded mega-a ledger before the collection run."""
+        lines = [
+            L(0, "corvid", "admin", "note", "early work detail", 2),
+            L(1, "zeta", "late", "note", "line born far in the future", 150),
+        ]
+        uses = {"corvid/admin": [2]}
+        early, _ = render(lines, uses, tooth=10)
+        assert "corvid" in early
+        assert "zeta" not in early  # not born yet -- must not appear
+        late, _ = render(lines, uses, tooth=160)
+        assert "zeta" in late  # ...but present once its tooth arrives
+
     def test_sweep_mutates_dials_deterministically(self):
         """The actual purpose of the substrate: same ledger, new dials,
         deterministic difference."""
@@ -529,8 +547,9 @@ class TestStrategyWiring:
         rec = s.recording()
         recorded = rec["renders"][-1]["block"]
         assert counter().count_text(recorded) > 260  # fat enough to shrink
-        rec["dials"] = {**rec["dials"], "resident_budget": 260}
-        block, _ = rerender_from_recording(rec, counter())
+        from dataclasses import replace
+        tight = replace(Ledger5Dials(**rec["dials"]), resident_budget=260)
+        block, _ = rerender_from_recording(rec, counter(), dials=tight)
         assert block != recorded  # a smaller resident budget re-renders
         assert counter().count_text(block) <= 260
 

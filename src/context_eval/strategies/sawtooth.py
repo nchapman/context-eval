@@ -1143,12 +1143,19 @@ def _l5_emit(active, sealed, kept, dials, counter, cap) -> str:
 
 
 def _l5_index(lines, uses, tooth, dials):
-    """Group facts into topics and workstreams; compute the law."""
+    """Group facts into topics and workstreams; compute the law.
+
+    Lines born after `tooth` are excluded: the render is a view of the
+    ledger AS IT WAS at that tooth (counterfactual sweeps replay early
+    teeth; the live arm always renders at the newest tooth, where the
+    filter is a no-op)."""
     groups: dict[str, list] = {}
     names: dict[str, tuple[str, str]] = {}
     for ln in lines:
         if not ln.umbrella or not ln.topic:
             continue
+        if ln.tooth > tooth:
+            continue  # not born yet -- no clairvoyance in sweeps
         key = f"{ln.umbrella}/{ln.topic}".casefold()
         groups.setdefault(key, []).append(ln)
         names.setdefault(key, (ln.umbrella, ln.topic))
@@ -1331,8 +1338,15 @@ def render_ledger5(lines, uses, tooth, dials, counter, cap):
     return block, rungs
 
 
-def rerender_from_recording(rec: dict, counter, tooth: int | None = None):
+def rerender_from_recording(
+    rec: dict, counter, tooth: int | None = None, dials: Ledger5Dials | None = None
+):
     """Offline dial-sweep entry point: re-render a recorded ledger.
+
+    `dials` overrides the recorded configuration (pass
+    dataclasses.replace(Ledger5Dials(**rec["dials"]), ...) for partial
+    changes) -- the recording itself is never mutated, so a sweep loop
+    over many dial values shares one recording safely.
 
     Roundtrip contract: with tooth=None (the default), this reproduces
     the last recorded render byte-for-byte -- uses are clipped to the
@@ -1348,7 +1362,7 @@ def rerender_from_recording(rec: dict, counter, tooth: int | None = None):
     hard way on the mega-a recording: CharEstimator admitted ~20% more
     detail lines than the DeepSeek tokenizer did).
     """
-    dials = Ledger5Dials(**rec["dials"])
+    dials = dials or Ledger5Dials(**rec["dials"])
     last_render = rec["renders"][-1] if rec["renders"] else None
     if tooth is None:
         tooth = last_render["render_tooth"] if last_render else 1
