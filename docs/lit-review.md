@@ -409,11 +409,18 @@ was dropped -- the never-stamp-a-note guard rail matters. (2) Crowding
 class: 11/12 wrong-status topics had their flip chunk covered at chunk
 granularity (one citing line suppresses the whole-chunk audit); a
 message-granularity second look (re-read uncited short tool messages,
-median 12K chars/tooth, +29% extraction cost) is the candidate fix,
-unproven on the bench (its one apparent fix was first-pass variance;
-the decisive chunk hit a bench-specific empty response). (3) A third
-of the apparent misses were a benchmark artifact: status-bearing
-naming lines landing after the currency flip made gold contradict the
+median 12K chars/tooth, +29% extraction cost) was tried and REJECTED:
+it fires as a second full extraction (33 firings -> 260 lines), its
+noise re-stamped a correct status, and it captured nothing the first
+pass lacked. (3) Most of the residual was neither: the model sometimes
+drops the leading '- ' bullet marker and the parser silently discarded
+whole chunks of valid rows (up to 8 chunks/run on the bench, latent
+live at 1 tooth of 610) -- accepting the bare row form took bench
+topic capture to 10/10 (a-s1), 8/10 (a-s2; both misses share one
+chunk that still returns empty under bench conditions), 10/10 (b-s2),
+against live first-class capture 5/10, 2/10, 4/10. (4) A third of the
+apparent misses were a benchmark artifact: status-bearing naming
+lines landing after the currency flip made gold contradict the
 latest evidence -- fixed at injection (naming now lands in the first
 half), invalidating 2-3 topics per run of the collected scores' wrong
 currency answers.

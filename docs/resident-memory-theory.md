@@ -49,13 +49,23 @@ Measured ground truth from this benchmark (all cells n>=6, see README R1-R11):
   64K-char chunk can lose the allocation fight to dense work output even
   when the prompt exempts it — 11/12 wrong-status topics had their flip
   chunk marked covered (any line citing any message suppresses the
-  whole-chunk audit), so the audit never re-read it. The chunk-granularity
-  coverage rule is the residual structural gap; a message-granularity
-  "second look" (re-read uncited short tool messages) is the candidate fix,
-  unproven on the bench. A third class proved to be a benchmark artifact,
-  not extraction: naming lines landing after the currency flip made gold
-  contradict the latest evidence (fixed at the injection layer; naming now
-  lands in the first half).
+  whole-chunk audit), so the audit never re-read it. A message-granularity
+  "second look" (re-read uncited short tool messages) was tried and
+  REJECTED on the bench: it fires as a second full extraction (33 firings
+  -> 260 lines, ~8 each), its noise re-stamped a correct resolved status
+  back to open, and it never captured a miss the first pass lacked —
+  +29% cost, negative value. Most of the apparent crowding then dissolved
+  into a third, unexpected class: the model sometimes drops the leading
+  '- ' bullet marker and the parser silently discarded whole chunks of
+  valid rows (up to 8 chunks/run on the bench; latent live — 1 tooth of
+  610 in the collection). Accepting the bare row form (_bullet_or_row)
+  took bench topic capture to 10/10, 8/10, 10/10 against live 5/10,
+  2/10, 4/10; the single remaining miss pair shares one chunk that still
+  returns empty under bench conditions. Chunk-granularity coverage
+  remains the structural residue. A fourth class proved to be a
+  benchmark artifact, not extraction: naming lines landing after the
+  currency flip made gold contradict the latest evidence (fixed at the
+  injection layer; naming now lands in the first half).
 
 The theory must explain these, not just tolerate them.
 
