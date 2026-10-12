@@ -215,7 +215,7 @@ class TestOpenRouterClient:
         assert "stream" not in captured["body"]
         assert captured["body"]["provider"] == {
             "only": ["baidu/fp8"],
-            "allow_fallbacks": True,
+            "allow_fallbacks": False,
         }
 
     def test_provider_error_in_body_raises(self):
@@ -374,7 +374,7 @@ class TestStreaming:
         assert captured["body"]["model"] == "deepseek/deepseek-v4.1-flash"
         assert captured["body"]["provider"] == {
             "only": ["baidu/fp8"],
-            "allow_fallbacks": True,
+            "allow_fallbacks": False,
         }
 
     def test_stream_retry_on_transient_then_success(self):
@@ -696,3 +696,41 @@ class TestVettedAllowlist:
         self._fake_endpoints(monkeypatch)
         tags = P.resolve_provider_tags()
         assert "venice/fp8" in tags and "deepinfra/fp8" in tags
+
+
+class TestStrictVettedRotation:
+    def test_persistent_500_rotates_pin(self, monkeypatch):
+        import context_eval.provider as P
+        from context_eval.provider import OpenRouterClient
+
+        tags = ("a/fp8", "b/fp8")
+        c = OpenRouterClient(provider_only=tags, provider_offset=0, stream=False)
+        seen = []
+
+        def post(body):
+            from context_eval.provider import Completion, _TransientProviderError
+            from context_eval.types import Usage
+
+            pin = body["provider"]["only"][0]
+            seen.append(pin)
+            if pin == "b/fp8":  # rotated pin succeeds
+                return Completion(text="ok", finish_reason="stop",
+                                  usage=Usage(), provider=pin,
+                                  tool_calls=(), model="m")
+            raise _TransientProviderError("HTTP 500: upstream error")
+
+        monkeypatch.setattr(c, "_post", post)
+        monkeypatch.setattr(P.time, "sleep", lambda s: None)
+        r = c.complete([{"role": "user", "content": "q"}])
+        assert r.text == "ok"
+        assert seen[0] == "a/fp8" and seen[1] == "a/fp8"  # one in-place retry
+        assert seen[2] == "b/fp8"  # rotated on persistent failure
+
+    def test_fallbacks_off_by_default_env_enables(self, monkeypatch):
+        from context_eval.provider import OpenRouterClient
+
+        c = OpenRouterClient(provider_only=("a/fp8",))
+        assert c._allow_fallbacks is False
+        monkeypatch.setenv("CONTEXT_EVAL_ALLOW_FALLBACKS", "1")
+        c2 = OpenRouterClient(provider_only=("a/fp8",))
+        assert c2._allow_fallbacks is True

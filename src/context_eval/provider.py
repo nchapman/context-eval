@@ -88,13 +88,17 @@ def resolve_provider_tags(
     finally:
         if own:
             client.close()
-# Fallbacks ON by default: pinning to the fp8 `only` list with
-# allow_fallbacks=False funneled evening traffic onto whichever fp8
-# upstream OpenRouter preferred (baidu), whose shared-pool per-key rate
-# limits then 429'd sequential single calls. With fallbacks enabled the
-# pin stays a *preference* (fp8 pricing when healthy) and OpenRouter can
-# route around a congested or throttled upstream.
-DEFAULT_ALLOW_FALLBACKS = True
+# Fallbacks OFF by default (strict vetted tier): allow_fallbacks=true let
+# OpenRouter route around a sick pinned provider to ANY upstream -- silently
+# reintroducing providers we vetted out (dev25: Venice 0.13, DeepInfra 0.57
+# per-provider accuracy on identical questions). Resilience now comes from
+# client-side rotation: the pin ladder advances to the next vetted tag on
+# persistent transient failures (see complete()), so a request either lands
+# on a vetted provider or errors visibly. Historical note: the earlier
+# rationale for fallbacks (baidu shared-pool 429s) is obsolete -- that was
+# an 18-tag `only` list trusting OpenRouter's routing; we now pin one tag
+# per worker ourselves. Override with CONTEXT_EVAL_ALLOW_FALLBACKS=1.
+DEFAULT_ALLOW_FALLBACKS = False
 
 # OpenAI wire-format message dicts. Kept as plain dicts: the provider stays a
 # dumb transport and the harness owns transcript <-> wire conversion.
@@ -186,7 +190,7 @@ class OpenRouterClient:
         *,
         stream: bool = True,
         provider_only: tuple[str, ...] | None = None,
-        allow_fallbacks: bool = DEFAULT_ALLOW_FALLBACKS,
+        allow_fallbacks: bool | None = None,
         provider_offset: int | None = None,
     ) -> None:
         self.model = model
@@ -216,6 +220,9 @@ class OpenRouterClient:
         # Full pool kept for 429 rotation (see complete()); the pinned tag
         # is tags[0] of the pool when rotation enabled.
         self._rotation_pool = tuple(provider_only) if provider_only else ()
+        # None = env override, else strict default (see DEFAULT_ALLOW_FALLBACKS)
+        if allow_fallbacks is None:
+            allow_fallbacks = os.environ.get("CONTEXT_EVAL_ALLOW_FALLBACKS", "").strip() == "1"
         self._allow_fallbacks = allow_fallbacks
 
     def complete(
@@ -282,10 +289,13 @@ class OpenRouterClient:
                     ) from exc
                 # A pin that stays throttled blocks OpenRouter's own
                 # rerouting (only-listed upstream accepts then fails), so
-                # persistent 429s rotate to the next pinned provider
+                # persistent failures rotate to the next pinned provider
                 # instead of re-hitting the same pool for minutes.
+                # Immediate on 429 (provider-specific throttle); other
+                # transients get one in-place backoff retry first.
                 pinned = bool(self._provider_only) and len(self._provider_only) == 1
-                if rotation and pinned and str(exc).find("429") != -1:
+                throttled = "429" in str(exc)
+                if rotation and pinned and (throttled or attempt >= 1):
                     body["provider"]["only"] = [rotation[0]]
                     rotation = rotation[1:]
                     print(
