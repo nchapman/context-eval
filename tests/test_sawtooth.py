@@ -554,3 +554,14 @@ class TestProfileKind:
         raw = "reading/prefs | profile | prefers fantasy over sci-fi [§12]"
         ln = _Ledger5Line(0, raw)
         assert ln.kind == "profile" and "profile:" not in ln.text
+
+
+class TestZeroCoverageAudit:
+    def test_audit_fires_same_tooth_and_uses_audit_prompt(self):
+        # a chunk whose extraction yields nothing gets the miss-focused
+        # second pass within the same tooth (reaudit_gap=1)
+        import context_eval.strategies.sawtooth as S
+
+        assert S.Ledger5Dials().reaudit_gap == 1
+        assert "recorded NOTHING" in S._V5_AUDIT_PROMPT
+        assert "{segment}" in S._V5_AUDIT_PROMPT

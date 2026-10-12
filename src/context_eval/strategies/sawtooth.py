@@ -668,8 +668,9 @@ class SawtoothBack(Strategy):
         chunk_ids = set(re.findall(r"§([A-Za-z0-9_-]+) \[", chunk))
         tooth = self._teeth + 1  # the tooth being born (post-cut number)
         known = self._known_topics_v5()
+        prompt_tpl = _V5_AUDIT_PROMPT if audited else _EXTRACT_PROMPT_V5
         text = self._complete(
-            engine, _EXTRACT_PROMPT_V5.format(segment=chunk, known_topics=known)
+            engine, prompt_tpl.format(segment=chunk, known_topics=known)
         )
         added, empty, covered = 0, 0, False
         if not text:
@@ -729,7 +730,11 @@ class SawtoothBack(Strategy):
         appends without provider calls. The GAP itself, however, is a
         collection-time dial: the recorded appends already carry their
         audit-time birth teeth and prompt state, so a different gap
-        cannot be counterfactually re-run offline (rerender rejects it)."""
+        cannot be counterfactually re-run offline (rerender rejects it).
+        The re-extraction uses a miss-focused prompt: at temperature 0 the
+        same prompt would reproduce the same empty result, so the audit
+        asks specifically for what the first pass dropped (dated events,
+        quantities, commitments)."""
         gap = self._dials5.reaudit_gap
         current = self._teeth + 1
         for ch in self._chunks5:
@@ -995,6 +1000,24 @@ Rules:
 {segment}"""
 
 _V5_KINDS = ("note", "decision", "profile", "open", "resolved", "paused", "in progress")
+
+# Second-chance prompt for zero-coverage chunks (the audit): the first pass
+# at temperature 0 already chose to record nothing from this text, so the
+# audit asks for what first passes drop in busy carousels -- dated events,
+# quantities, commitments -- instead of repeating the same extraction.
+_V5_AUDIT_PROMPT = """An earlier pass over this segment of an agent session recorded NOTHING, which almost always means a busy segment crowded out a quieter topic. Recover what was missed.
+Output ONLY a bullet list, one per line, in exactly one of these forms:
+- WORKSTREAM/topic | note | the observation [§<ids>]
+- WORKSTREAM/topic | decision | what was chosen or agreed, and why [§<ids>]
+- WORKSTREAM/topic | profile | durable fact about the user themselves [§<ids>]
+- WORKSTREAM/topic | <status> | what changed and why [§<ids>]
+Priorities, in order: (1) dated events and activities with their dates or durations -- start/finish, attendance, deadlines; (2) quantities and totals attached to an activity; (3) commitments and preferences; (4) anything else durable.
+Rules:
+- Same WORKSTREAM/TOPIC vocabulary as the ledger; reuse KNOWN TOPICS verbatim where they fit.
+- At most ~5 lines per topic; at most 15 words each; keep every date and number exactly as stated. Never quote the transcript.
+- Prefer fewer, exact lines over many vague ones. If the segment is genuinely ephemeral (greetings, filler), output nothing.
+{known_topics}Segment:
+{segment}"""
 _V5_STATE_KINDS = ("open", "resolved", "paused", "in progress")
 
 _V5_ROW = re.compile(
@@ -1117,7 +1140,7 @@ class Ledger5Dials:
     composition_detail: str = "max"  # max | mass
     seal_after_teeth: int = 30
     stale_status_teeth: int = 15
-    reaudit_gap: int = 3
+    reaudit_gap: int = 1
     use_sources: str = "exogenous"  # diagnostic arms computed offline
     search_reactivates: str = "quoted"  # quoted | any-hit | off
     clock: str = "teeth"  # teeth+virtual-idle computed offline
