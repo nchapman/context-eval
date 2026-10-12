@@ -447,3 +447,25 @@ workstreams, composition = max member activation, supersession/tree
 repair absent, raw-FTS search without alias or ledger-weight ranking).
 One render-dial coverage gap closed per reviewer (composition_detail
 'mass' and activation_form 'exp' now order-flip-tested).
+
+Sealed-tier enumeration probe (offline, validation recording): with
+naming now in the first half, all 10 seeded topics seal by tooth ~41-75
+and the final render carries them as one inline sealed line. Live
+validation: currency 10/10 (every status exact, vs 0.60 collected) --
+the note-taking fix holds end to end -- but continuity 0.0: the model
+enumerates 17 rich active workstreams and curates the sealed list out
+of "main projects we've discussed". Offline probe matrix
+(scripts/seal_render_probe.py, driver's own _ask, live search tools):
+inline line 0/10, bulleted sealed section 0/10, section at block top
+0/10, explicit "including older, sealed, or closed-out ones" wording
+0/10 -- but a minimal block containing ONLY the sealed section scores
+10/10 with perfect descriptions. Finding: enumeration is mass-gated,
+not format-gated. The sealed tier preserves findability (cued status
+perfect; isolated enumeration perfect); it cannot force enumeration
+against a block dominated by active work. No strategy-side render fix
+exists at this mass ratio; the model's curation is defensible for
+topics named once at 15% depth. The continuity probe with
+naming-in-first-half now measures answer curation, not memory loss --
+future collections should read it alongside currency (the memory
+probe) or re-introduce mid-session topic activity before treating a
+low continuity score as failure.
