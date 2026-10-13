@@ -88,6 +88,7 @@ class FlatCompact(Strategy):
         self._summary: str = ""
         self._summarized_upto = 0  # store messages folded into the summary
         self._compactions = 0
+        self._snapshots: list[tuple[int, str]] = []
         self._empty = 0
         self._overhead = Usage()
         self._index = _FtsIndex()
@@ -154,6 +155,8 @@ class FlatCompact(Strategy):
         self._summary = completion.text.strip() or self._summary
         self._summarized_upto = tail_start
         self._compactions += 1
+        if self._compactions % 10 == 1 or self._compactions % 10 == 0:
+            self._snapshots.append((self._compactions, self._summary))
 
     def assemble(self, engine: Engine) -> list[PromptMessage]:
         # Deployed semantics: verbatim everything since the last compaction
@@ -177,6 +180,17 @@ class FlatCompact(Strategy):
     def _fold_prompt(self, segment: str) -> str:
         """The compaction instruction; v2 variants override this hook."""
         return _FLAT_PROMPT.format(segment=segment)
+
+    def recording(self) -> dict | None:
+        """Summary artifact forensics: final summary plus every 10th fold
+        (watch cue decay across folds without paying for full history)."""
+        if not self._summary:
+            return None
+        return {
+            "final_summary": self._summary,
+            "compactions": self._compactions,
+            "snapshots": self._snapshots,
+        }
 
     # -- recall tools (parity with lcm/retrieval) ----------------------------
 
