@@ -33,11 +33,11 @@ must let the agent either answer directly or issue one precise
 history_search query. It is NOT prose.
 
 Build in two steps:
-STEP 1 - from NEW HISTORY SINCE only, list every topic touched (a
-person, project, purchase, plan, event, preference, or recurring
-activity), with its entities, specific numbers/amounts/dates, and the
-[<id>] stamps of its messages.
-STEP 2 - merge into the PREVIOUS INDEX: one line per topic, newest
+STEP 1 - from the NEW MESSAGES above only (not the prior index), list
+every topic touched (a person, project, purchase, plan, event,
+preference, or recurring activity), with its entities, specific
+numbers/amounts/dates, and the [<id>] stamps of its messages.
+STEP 2 - merge into the prior index above: one line per topic, newest
 info first within the line. Topics never merge. When a value changes,
 update it in place and keep one trailing "(was X)" only if the old
 value was recent. Never drop a topic that was not superseded -- a
@@ -55,11 +55,8 @@ USER: identity card, 3 lines max, CURRENT values only.
 TOPIC INDEX: one line per topic, most recently active first.
 THREADS: open loops and next steps, one line each.
 
-Keep the whole index under ~{_V2_INDEX_WORDS} words. Resolve relative dates to
-absolute YYYY-MM-DD using the segment's stamps.
-
-SEGMENT:
-{{segment}}"""
+Keep the whole index under ~{_V2_INDEX_WORDS} words. Resolve relative
+dates to absolute YYYY-MM-DD using the message stamps."""
 
 
 class FlatCompactV2(FlatCompact):
@@ -74,5 +71,5 @@ class FlatCompactV2(FlatCompact):
     ) -> None:
         super().__init__(tau=tau, keep_tail_frac=keep_tail_frac)
 
-    def _fold_prompt(self, segment: str) -> str:
-        return _V2_PROMPT.format(segment=segment)
+    def _fold_instruction(self) -> str:
+        return _V2_PROMPT

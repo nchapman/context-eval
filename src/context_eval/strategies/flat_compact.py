@@ -50,11 +50,11 @@ _FLAT_SUMMARY_WORDS = 300
 _FLAT_BACKSTOP_TOKENS = 2560
 _FLAT_PROMPT = f"""Summarize this agent session history (chat or coding) for future
 reference as a flat, sectioned summary. Do this in two steps:
-STEP 1 - from NEW HISTORY SINCE only, list every dated event and every
-specific value (names, numbers, dates, ids).
-STEP 2 - merge that list into the PREVIOUS SUMMARY's sections, carrying
-prior bullets forward. Never skip step 1: new history MUST enter the
-summary even when the PREVIOUS SUMMARY already covers the topic.
+STEP 1 - from the NEW MESSAGES above only (not the prior summary), list
+every dated event and every specific value (names, numbers, dates, ids).
+STEP 2 - merge that list into the prior summary's sections, carrying
+prior bullets forward. Never skip step 1: new messages MUST enter the
+summary even when the prior summary already covers the topic.
 
 USER: at most 5 lines - role, location, sustained traits, CURRENT values
 only. Do NOT add new interests or topics here; route each new topic to
@@ -63,16 +63,13 @@ never keep both, never list one entity twice.
 EVENTS: one bullet per dated event, as `name - date - amount/outcome`.
 Every event with a date, number, or count gets its own bullet; never
 merge events, never drop amounts. Resolve relative dates to absolute
-YYYY/MM/DD using the segment's [YYYY/MM/DD] stamps.
+YYYY/MM/DD using the message stamps.
 FACTS: every other specific value (ids, tokens, numbers, names,
 versions, file paths, commands and outcomes, errors and resolutions).
 STATE: the current task/goal and open threads, one or two lines.
 
 Keep the whole summary under ~{_FLAT_SUMMARY_WORDS} words.
-Mark where each fact came from as [<id>].
-
-SEGMENT:
-{{segment}}"""
+Mark where each fact came from as [<id>]."""
 
 
 class FlatCompact(Strategy):
@@ -134,18 +131,33 @@ class FlatCompact(Strategy):
             return  # nothing compactable yet
 
         # Fold everything before the tail into the running summary: the
-        # segment is prior unsummarized messages, prefixed by the previous
-        # summary (summary-of-summary compounding on later triggers).
-        segment_parts: list[str] = []
+        # conversation-form call is [prev summary, new roled messages,
+        # compact instruction] -- KV-cache-shaped, never a repeat of the
+        # whole conversation (each fold sees summary + delta only).
+        fold_messages: list[dict] = []
         if self._summary:
-            segment_parts.append(f"PREVIOUS SUMMARY:\n{self._summary}")
-            segment_parts.append("NEW HISTORY SINCE:")
+            fold_messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"[Session summary so far — compacted {self._compactions}x]\n"
+                        f"{self._summary}"
+                    ),
+                }
+            )
         for msg in messages[self._summarized_upto : tail_start]:
-            segment_parts.append(f"[§{msg.id}] {msg.role.value}: {msg.content}")
-        prompt = self._fold_prompt("\n".join(segment_parts))
+            fold_messages.append(
+                {"role": msg.role.value, "content": f"[§{msg.id}] {msg.content}"}
+            )
+        instruction = self._fold_instruction()
+        if fold_messages and fold_messages[-1]["role"] == "user":
+            # keep the instruction in its own turn; providers merge or
+            # reject double-user only sometimes, so split defensively
+            fold_messages.append({"role": "assistant", "content": "(ready to compact)"})
+        fold_messages.append({"role": "user", "content": instruction})
 
         completion = engine.llm.complete(
-            [{"role": "user", "content": prompt}],
+            fold_messages,
             **{**summary_call_kwargs(), "max_tokens": _FLAT_BACKSTOP_TOKENS},
         )
         if completion.usage:
@@ -177,9 +189,14 @@ class FlatCompact(Strategy):
         )
         return view
 
-    def _fold_prompt(self, segment: str) -> str:
-        """The compaction instruction; v2 variants override this hook."""
-        return _FLAT_PROMPT.format(segment=segment)
+    def _fold_instruction(self) -> str:
+        """Trailing compact instruction; v2 variants override this hook.
+        Conversation-form folding: the fold call is [prev summary as a
+        message, new messages as roled turns, THIS instruction last] --
+        the same message shape as the assembled view, so provider
+        prefix-cache can hit on shared prefixes, and roles stay natural
+        instead of a flattened blob."""
+        return _FLAT_PROMPT.replace("\nSEGMENT:\n{segment}", "")
 
     def recording(self) -> dict | None:
         """Summary artifact forensics: final summary plus every 10th fold

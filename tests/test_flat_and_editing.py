@@ -15,12 +15,16 @@ class StubLLM:
     def __init__(self):
         self.calls = 0
         self.prompts: list[str] = []
+        self.conversations: list[str] = []
         self.kwargs: list[dict] = []
 
     def complete(self, messages, *, tools=None, max_tokens=1024,
                  temperature=0.0, reasoning=None, require_content=False):
         self.calls += 1
         self.prompts.append(messages[-1]["content"] if messages else "")
+        self.conversations.append(
+            "\n".join(str(m.get("content")) for m in messages)
+        )
         self.kwargs.append({"reasoning": reasoning, "require_content": require_content})
 
         class R:
@@ -115,7 +119,7 @@ class TestFlatCompact:
             s.on_turn(eng)  # interleaved like the driver: append, then react
         assert s.stats().compactions >= 2  # compounding regime engaged
         # later compactions folded the previous summary back in
-        assert any("PREVIOUS SUMMARY" in p for p in llm.prompts[1:])
+        assert any("Session summary so far" in c for c in llm.conversations[1:])
 
     def test_search_tools_cover_archive(self):
         llm = StubLLM()
@@ -285,7 +289,7 @@ class TestTwoStepFoldPrompt:
         )
 
         assert "STEP 1" in _FLAT_PROMPT and "STEP 2" in _FLAT_PROMPT
-        assert "PREVIOUS SUMMARY" in _FLAT_PROMPT
+        assert "prior summary" in _FLAT_PROMPT  # conversation-form label
         assert "at most 5 lines" in _FLAT_PROMPT
         assert "YYYY/MM/DD" in _FLAT_PROMPT  # relative dates resolved
         assert _FLAT_BACKSTOP_TOKENS >= 2048
@@ -302,13 +306,13 @@ class TestFlatCompactV2:
         assert isinstance(s, FlatCompact)  # inherits mechanics
         assert s.name == "flat-compact-v2"
 
-    def test_fold_prompt_is_cue_card_not_digest(self):
+    def test_fold_instruction_is_cue_card_not_digest(self):
         from context_eval.strategies.flat_compact import FlatCompact
         from context_eval.strategies.flat_compact_v2 import FlatCompactV2
 
-        v2 = FlatCompactV2()._fold_prompt("SEG")
-        base = FlatCompact()._fold_prompt("SEG")
+        v2 = FlatCompactV2()._fold_instruction()
+        base = FlatCompact()._fold_instruction()
         assert "TOPIC INDEX" in v2 and "history_search" in v2
         assert "EVENTS:" not in v2  # digest sections are gone
         assert v2 != base
-        assert "SEG" in v2 and "{segment}" not in v2
+        assert "{segment}" not in base and "{segment}" not in v2

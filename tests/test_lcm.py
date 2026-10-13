@@ -488,9 +488,9 @@ class TestFlatSectionedPrompt:
     def test_flat_prompt_sections_and_carry_forward(self):
         from context_eval.strategies.flat_compact import _FLAT_PROMPT
 
-        for section in ("USER:", "EVENTS:", "FACTS:", "STATE:", "PREVIOUS SUMMARY"):
+        for section in ("USER:", "EVENTS:", "FACTS:", "STATE:", "prior summary"):
             assert section in _FLAT_PROMPT
-        assert "{segment}" in _FLAT_PROMPT
+        assert "{segment}" not in _FLAT_PROMPT  # conversation-form: no placeholder
 
 
 class TestConsolidationRepair:
