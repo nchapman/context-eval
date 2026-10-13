@@ -44,8 +44,12 @@ from context_eval.strategies.conclusions import (
     _FtsIndex,
     _Record,
 )
-from context_eval.strategies.flat_compact import _D1_PROMPT
-from context_eval.strategies.lcm import render_search_results, summary_call_kwargs
+from context_eval.strategies.lcm import (  # noqa: C401
+    _D1_PROMPT,
+    _session_date,
+    render_search_results,
+    summary_call_kwargs,
+)
 from context_eval.tokens import MESSAGE_OVERHEAD_TOKENS
 from context_eval.types import PromptMessage, Role, Usage
 
@@ -704,12 +708,19 @@ class SawtoothBack(Strategy):
             new.umbrella = self._canon_ws5(new.umbrella)
             new.topic = self._canon_topic5(new.umbrella, new.topic)
             new.tooth = tooth
+            # temporal questions need the session timestamp; stamp the line
+            # with its cited messages' session date so 'when' is resident
+            for cid in new.ids:
+                new.when = _session_date(engine.store, cid)
+                if new.when:
+                    break
             self._lines5.append(new)
             key = f"{new.umbrella}/{new.topic}".casefold()
             self._uses5.setdefault(key, []).append(tooth)
             self._rec5["lines"].append({
                 "seq": new.seq, "ws": new.umbrella, "topic": new.topic,
                 "kind": new.kind, "text": new.text, "ids": list(new.ids),
+                "when": new.when,
                 "tooth": tooth, "audited": audited,
             })
             self._rec5["uses"].append({"tooth": tooth, "key": key, "source": "segment"})
@@ -740,7 +751,11 @@ class SawtoothBack(Strategy):
         for ch in self._chunks5:
             if ch["covered"] or ch["audited"]:
                 continue
-            if current - ch["tooth"] < gap:
+            # gap counts teeth AFTER the extraction tooth: gap=1 gives an
+            # uncovered chunk its second chance in the same cut (single-tooth
+            # replays never see another tooth -- dev100 forensics showed
+            # covered:false chunks stranded un-audited in every recording).
+            if current - ch["tooth"] < max(gap - 1, 0):
                 continue
             ch["audited"] = True  # set first: audit once, whatever happens
             wanted = set(ch["ids"])
@@ -860,7 +875,24 @@ class SawtoothBack(Strategy):
             self._note_search(str(args.get("query", "")), results)
             if not results:
                 return "no matches"
-            return render_search_results(results, engine.store)
+            out = render_search_results(results, engine.store)
+            # Reactivation the answer model can SEE: lines whose cited
+            # messages are in the hit set ride along in the tool result.
+            # Token-overlap topic matching left 27/27 correct-result
+            # searches with matched:[] on dev100 -- the ledger knew the
+            # facts but never surfaced them (queries name events like
+            # 'tennis racket', not topics like 'user profile/wellness').
+            if self.mode == "ledger5":
+                result_ids = {mid for mid, _ in results}
+                riders = [
+                    ln for ln in self._lines5
+                    if set(ln.ids) & result_ids
+                ]
+                if riders:
+                    out += "\n\nLedger lines citing these messages:\n" + "\n".join(
+                        f"- {ln.text} [{ln.umbrella}/{ln.topic}]" for ln in riders
+                    )
+            return out
 
         def do_recall(args):
             try:
@@ -1052,13 +1084,17 @@ def _bullet_or_row(line: str) -> str | None:
 
 
 class _Ledger5Line:
-    __slots__ = ("seq", "umbrella", "topic", "kind", "text", "ids", "tooth", "tokens_cache")
+    __slots__ = (
+        "seq", "umbrella", "topic", "kind", "text", "ids", "tooth",
+        "tokens_cache", "when",
+    )
 
     def __init__(self, seq: int, line: str) -> None:
         self.seq = seq
         self.tooth = 0
         self.ids: list[str] = []
         self.tokens_cache = None
+        self.when = ""  # session date of the cited messages, if stamped
         raw = line.strip().lstrip("-*").strip()
         m = _V5_ROW.match(raw)
         if m:
@@ -1223,6 +1259,12 @@ def _l5_sealed_line(sealed: list, counter, cap: int) -> str:
     return line
 
 
+def _l5_fact(f) -> str:
+    """Display form of a ledger fact: date-stamped when known. Emission
+    and token accounting must use this same string."""
+    return f"- [{f.when}] {f.text}" if f.when else f"- {f.text}"
+
+
 def _l5_emit(active, sealed, kept, dials, counter, cap) -> str:
     parts = [_HEADER_V5]
     for w in active:
@@ -1230,7 +1272,7 @@ def _l5_emit(active, sealed, kept, dials, counter, cap) -> str:
         for t in w.topics:
             k = sorted(kept.get(t.key, ()), key=lambda f: f.seq, reverse=True)
             lines.append(_l5_topic_line(t, dials, has_detail=bool(k)))
-            lines.extend(f"- {f.text}" for f in k)
+            lines.extend(_l5_fact(f) for f in k)
         parts.append("\n".join(lines))
     if sealed:
         parts.append(_l5_sealed_line(sealed, counter, cap))
@@ -1358,7 +1400,7 @@ def render_ledger5(lines, uses, tooth, dials, counter, cap):
     added: list = []  # global add order, for overflow rollback
 
     def fact_cost(f) -> int:
-        return counter.count_text(f"- {f.text}") + 1
+        return counter.count_text(_l5_fact(f)) + 1
 
     def delta(t: _T5Topic, f) -> int:
         d = fact_cost(f)

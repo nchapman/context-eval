@@ -308,14 +308,17 @@ class TestTopicsLine:
         assert "union of the children" in _DN_PROMPT
         assert "never drop a named topic" in _DN_PROMPT
 
-    def test_flat_shares_the_d1_topics_instruction(self):
-        # flat imports _D1_PROMPT from lcm: the inventory instruction must
-        # be symmetric across both summarizing arms or the comparison is
-        # confounded.
-        from context_eval.strategies.flat_compact import _D1_PROMPT as flat_d1
-        from context_eval.strategies.lcm import _D1_PROMPT as lcm_d1
+    def test_flat_no_longer_shares_d1(self):
+        # flat now ships its own sectioned /compact template (dev100
+        # finding: the shared 150-word prose cap discarded per-event
+        # numbers). Pin the decoupling so the arms stay independently
+        # faithful to their reference designs.
+        import importlib
 
-        assert flat_d1 is lcm_d1
+        flat = importlib.import_module("context_eval.strategies.flat_compact")
+        assert not hasattr(flat, "_D1_PROMPT")
+        assert "EVENTS:" in flat._FLAT_PROMPT
+
 
 
 class TestTopicsSwitch:
@@ -444,3 +447,47 @@ class TestAttributedSnippets:
         store.append(Role.USER, "I raised $250 in a charity walk")
         out = render_search_results([("m000001", "I raised $250 ...")], store)
         assert out == "m000001 [user]: I raised $250 ..."
+
+
+class TestDateAttribution:
+    def _store(self):
+        from context_eval.store import TranscriptStore
+        from context_eval.types import Role
+
+        store = TranscriptStore()
+        store.append(Role.USER, "[2023/05/22] I did a charity walk and raised $250")
+        store.append(Role.ASSISTANT, "Congratulations on the $250!")
+        store.append(Role.USER, "[2023/06/10] Later, unrelated news about guitars")
+        store.append(Role.ASSISTANT, "Nice.")
+        return store
+
+    def test_session_date_resolves_backwards_to_opener(self):
+        from context_eval.strategies.lcm import _session_date
+
+        s = self._store()
+        assert _session_date(s, "m000002") == "2023/05/22"
+        assert _session_date(s, "m000004") == "2023/06/10"
+        assert _session_date(s, "m999999") == ""
+
+    def test_render_carries_role_and_date(self):
+        from context_eval.strategies.lcm import render_search_results
+
+        out = render_search_results([("m000002", "Congratulations ...")], self._store())
+        assert out == "m000002 [assistant] [2023/05/22]: Congratulations ..."
+
+
+class TestSummaryDateClause:
+    def test_d1_and_dn_mention_dates(self):
+        from context_eval.strategies.lcm import _D1_PROMPT, _DN_PROMPT
+
+        assert "date of every dated event" in _D1_PROMPT
+        assert "dated event" in _DN_PROMPT
+
+
+class TestFlatSectionedPrompt:
+    def test_flat_prompt_sections_and_carry_forward(self):
+        from context_eval.strategies.flat_compact import _FLAT_PROMPT
+
+        for section in ("USER:", "EVENTS:", "FACTS:", "STATE:", "PREVIOUS SUMMARY"):
+            assert section in _FLAT_PROMPT
+        assert "{segment}" in _FLAT_PROMPT

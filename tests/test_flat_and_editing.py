@@ -274,4 +274,4 @@ class TestCalibratedCall:
         assert llm.calls >= 1
         assert all(k["reasoning"] == {"enabled": False} for k in llm.kwargs)
         assert all(k["require_content"] for k in llm.kwargs)
-        assert "150 words" in llm.prompts[0]
+        assert "300 words" in llm.prompts[0]  # flat sectioned prompt cap

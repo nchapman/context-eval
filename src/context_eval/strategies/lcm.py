@@ -85,9 +85,10 @@ _D1_PROMPT = (
 future reference.
 Preserve exactly: the task/goal, key decisions and why, file paths touched,
 commands run and their outcomes, errors and resolutions, every specific
-value (ids, tokens, numbers, names, versions), and who the user is and
+value (ids, tokens, numbers, names, versions), who the user is and
 prefers (field or role, sustained interests shown across turns, explicit
-likes/dislikes and constraints).
+likes/dislikes and constraints), and the date of every dated event (use
+the [YYYY/MM/DD] session stamps verbatim).
 Mark where each fact came from as [§<id>]. Keep the whole summary under
 ~{SUMMARY_WORDS} words, including any final topic-inventory line.
 """
@@ -104,8 +105,8 @@ Mark where each fact came from as [§<id>]. Keep the whole summary under
 _DN_PROMPT = (
     """These are summaries of consecutive earlier segments of one agent session.
 Consolidate them into one higher-level summary. Keep every specific value
-(ids, tokens, numbers, names, versions) and their [§<id>] references; drop
-narrative. Keep the summary under ~150 words.
+(ids, tokens, numbers, names, versions) and their [§<id>] references; keep
+each dated event's date; drop narrative. Keep the summary under ~150 words.
 """
     + (
         "Your TOPICS line is the union of the children's TOPICS lines: deduplicate\n"
@@ -117,13 +118,39 @@ narrative. Keep the summary under ~150 words.
 )
 
 
-def render_search_results(results, store) -> str:
-    """Render search hits with role attribution: `m000169 [user]: ...`.
+_DATE_PREFIX = re.compile(r"^\[(\d{4}/\d{2}/\d{2})\]")
 
-    Without the role header a hit like '...managed to raise $250 through
+
+def _session_date(store, mid: str) -> str:
+    """Resolve a message's session date from the loader's `[YYYY/MM/DD]`
+    opener stamp (datasets/longmemeval.py stamps the first user message of
+    each session). Walks backwards; returns "" when the corpus has no
+    dates."""
+    msgs = store.messages()
+    try:
+        i = next(k for k, m in enumerate(msgs) if m.id == mid)
+    except StopIteration:
+        return ""
+    for m in reversed(msgs[: i + 1]):
+        hit = _DATE_PREFIX.match(m.content)
+        if hit:
+            return hit.group(1)
+    return ""
+
+
+def render_search_results(results, store) -> str:
+    """Render search hits with role and session-date attribution:
+    `m000169 [user] [2023/05/22]: ...`.
+
+    Role: without the header a hit like '...managed to raise $250 through
     sponsors...' is unattributable -- could be anyone discussed in the
     transcript -- and the answer model discards it (dev25 charity total:
-    the fact was visible in the #1 snippet and never integrated)."""
+    the fact was visible in the #1 snippet and never integrated).
+    Date: temporal questions need the session timestamp, which lives only
+    on the session opener message; annotating every hit with its resolved
+    session date makes 'how many days ago' arithmetic possible without a
+    second retrieval (dev100 forensics: 7/14 fresh temporal misses died
+    on exactly this)."""
     lines = []
     for mid, snippet in results:
         role = "?"
@@ -131,7 +158,9 @@ def render_search_results(results, store) -> str:
             role = store.require(mid).role.value
         except KeyError:
             pass
-        lines.append(f"{mid} [{role}]: {snippet}")
+        date = _session_date(store, mid)
+        when = f" [{date}]" if date else ""
+        lines.append(f"{mid} [{role}]{when}: {snippet}")
     return "\n".join(lines)
 
 

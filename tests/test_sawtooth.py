@@ -565,3 +565,52 @@ class TestZeroCoverageAudit:
         assert S.Ledger5Dials().reaudit_gap == 1
         assert "recorded NOTHING" in S._V5_AUDIT_PROMPT
         assert "{segment}" in S._V5_AUDIT_PROMPT
+
+
+class TestSameToothAudit:
+    def test_uncovered_chunk_audited_in_same_cut(self):
+        """Regression: gap=1 stranded covered:false chunks in single-tooth
+        replays (dev100: every recording showed audited:false on uncovered
+        chunks -- the audit never fired)."""
+        from context_eval.strategies.sawtooth import SawtoothLedger5
+
+        strat = SawtoothLedger5()
+        store = TranscriptStore()
+        store.append(Role.USER, "the audited span text")
+        strat._chunks5.append({"ids": {"m000001"}, "tooth": 1, "covered": False,
+                               "audited": False})
+        calls = []
+        strat._v5_extract_chunk = lambda engine, chunk, audited=False: calls.append(
+            (chunk, audited)
+        )
+        from context_eval.budget import Budget
+        from context_eval.strategies.base import Engine
+        from context_eval.tokens import CachedCounter, CharEstimator
+
+        eng = Engine(store=store, counter=CachedCounter(CharEstimator()),
+                     budget=Budget(max_context_tokens=64000), llm=None)
+        strat._v5_audit(engine=eng)
+        assert calls and calls[0][1] is True  # audit re-extracted same tooth
+
+
+class TestSearchReactivation:
+    def test_search_surfaces_overlapping_ledger_lines(self):
+        from context_eval.budget import Budget
+        from context_eval.strategies.base import Engine
+        from context_eval.strategies.sawtooth import SawtoothLedger5
+        from context_eval.tokens import CachedCounter, CharEstimator
+
+        store = TranscriptStore()
+        store.append(Role.USER, "I bought a new tennis racket online")
+        engine = Engine(store=store, counter=CachedCounter(CharEstimator()),
+                        budget=Budget(max_context_tokens=64000), llm=None)
+        strat = SawtoothLedger5()
+        strat.on_turn(engine)  # populates the FTS index (on_turn does it)
+        from context_eval.strategies.sawtooth import _Ledger5Line
+
+        ln = _Ledger5Line(1, "- user profile/wellness | note | Bought tennis racket §m000001")
+        strat._lines5.append(ln)
+        tools = {t.schema.name: t for t in strat.tools(engine)}
+        out = tools["history_search"].execute({"query": "tennis racket bought"})
+        assert "Bought tennis racket" in out
+        assert "user profile/wellness" in out

@@ -26,7 +26,6 @@ from __future__ import annotations
 from context_eval.provider import ToolSchema
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
 from context_eval.strategies.lcm import (
-    _D1_PROMPT,
     _FtsIndex,
     render_search_results,
     summary_call_kwargs,
@@ -36,6 +35,33 @@ from context_eval.types import PromptMessage, Role, Usage
 
 FLAT_TAU = 0.90  # compact when the assembled view exceeds this share of budget
 KEEP_TAIL_FRAC = 0.25  # tail kept verbatim, as a fraction of budget
+
+# The deployed /compact prompt is a sectioned template (Claude Code ships
+# Primary Request / Key Concepts / Files / Errors ...); OpenHands' condenser
+# is a plain instruction. Dev100 forensics: the prose cap inherited from
+# lcm's D1 (150 words) discarded one-off per-event numbers (charity $600 /
+# $5,000 / $250 lost to vagueness) -- an EVENTS section co-locates
+# name/date/amount so multi-session aggregation survives the fold.
+_FLAT_SUMMARY_WORDS = 300
+_FLAT_PROMPT = f"""Summarize this agent session history (chat or coding) for future
+reference as a flat, sectioned summary. Use exactly these sections:
+
+USER: who the user is and prefers (role, sustained interests, explicit
+likes/dislikes and constraints), one line.
+EVENTS: one bullet per dated event, as `name — date — amount/outcome`.
+Every event with a date, number, or count gets its own bullet; never
+merge events, never drop amounts.
+FACTS: every other specific value (ids, tokens, numbers, names,
+versions, file paths, commands and outcomes, errors and resolutions).
+STATE: the current task/goal and open threads, one or two lines.
+
+When a PREVIOUS SUMMARY is included, carry its EVENTS and FACTS bullets
+forward verbatim unless superseded by newer history. Keep the whole
+summary under ~{_FLAT_SUMMARY_WORDS} words.
+Mark where each fact came from as [§<id>].
+
+SEGMENT:
+{{segment}}"""
 
 
 class FlatCompact(Strategy):
@@ -104,7 +130,7 @@ class FlatCompact(Strategy):
             segment_parts.append("NEW HISTORY SINCE:")
         for msg in messages[self._summarized_upto : tail_start]:
             segment_parts.append(f"[§{msg.id}] {msg.role.value}: {msg.content}")
-        prompt = _D1_PROMPT.format(segment="\n".join(segment_parts))
+        prompt = _FLAT_PROMPT.format(segment="\n".join(segment_parts))
 
         completion = engine.llm.complete(
             [{"role": "user", "content": prompt}], **summary_call_kwargs()
