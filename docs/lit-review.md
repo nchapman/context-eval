@@ -493,3 +493,16 @@ raw tokens, flat folded 24x and scored 0.00 answering from population
 priors ("the typical four years of high school") while ledger5 cut 21
 teeth and scored 1.00 -- the compounding-vs-verbatim thesis on the
 very first M question.
+
+### m25 fix-validation, cap-truncated (2025-10-13)
+
+Depth-pathology fixes (7fbfc3c) validated on fresh1 only: flat
+0.67->0.75 (+0.08, 4up/2down; two-step fold + USER cap work), ledger5
+neutral, lcm 0.78->0.70 (suspect: depth-scaled word caps preserve
+[ids]/TOPICS via the repair net but delete fact text the net cannot
+restore -- caps need loosening to ~150 or the repair must quote fact
+lines, not just ids). sweep5 deleted: the OpenRouter KEY lifetime cap
+($200.00 total, "does not reset") tripped mid-run -- per-key spend
+limit, unaffected by billing top-ups; 26/75 runs 403'd arm-skewed.
+Fix: raise/remove the key limit at openrouter.ai/workspaces/default/
+keys before any further live spend.
