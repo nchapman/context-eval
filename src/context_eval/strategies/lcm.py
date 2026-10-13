@@ -123,8 +123,12 @@ each dated event's date; drop narrative. Write as dated bullets
 def _dn_words(depth: int) -> int:
     """Depth-scaled consolidation cap: roots at 400+ words parse as identity
     soup and violate the stated cap anyway (m25 qualitative review: D4
-    nodes rendered 400-800 words, unioning conflicting personas)."""
-    return {2: 120, 3: 100}.get(depth, 90)
+    nodes rendered 400-800 words, unioning conflicting personas). But caps
+    below the D1 leaf budget (150) force fact-text loss the repair net
+    cannot restore (fix-validation measured lcm 0.78->0.70 at 120/100/90);
+    compression is legitimate only where children are already summaries.
+    """
+    return {2: 150, 3: 120}.get(depth, 100)
 
 
 def _repair_consolidation(text: str, group: list[_Node]) -> str:
