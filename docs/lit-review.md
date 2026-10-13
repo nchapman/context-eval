@@ -494,15 +494,42 @@ priors ("the typical four years of high school") while ledger5 cut 21
 teeth and scored 1.00 -- the compounding-vs-verbatim thesis on the
 very first M question.
 
-### m25 fix-validation, cap-truncated (2025-10-13)
+### m25 fix-validation, final (2025-10-14)
 
-Depth-pathology fixes (7fbfc3c) validated on fresh1 only: flat
-0.67->0.75 (+0.08, 4up/2down; two-step fold + USER cap work), ledger5
-neutral, lcm 0.78->0.70 (suspect: depth-scaled word caps preserve
-[ids]/TOPICS via the repair net but delete fact text the net cannot
-restore -- caps need loosening to ~150 or the repair must quote fact
-lines, not just ids). sweep5 deleted: the OpenRouter KEY lifetime cap
-($200.00 total, "does not reset") tripped mid-run -- per-key spend
-limit, unaffected by billing top-ups; 26/75 runs 403'd arm-skewed.
-Fix: raise/remove the key limit at openrouter.ai/workspaces/default/
-keys before any further live spend.
+Key limit raised ($50). Full n=50 fixed-vs-baseline, question-matched,
+gates clean (0 markup / 0 errors / 5 blanks):
+
+| arm | S | M base | M fixed | flips | verdict |
+|---|---|---|---|---|---|
+| flat-compact | 0.82 | 0.59 | 0.65 | 6up/3dn | +0.06, mechanism confirmed twice (batch-1 +0.08) |
+| sawtooth-ledger5 | 0.89 | 0.65 | 0.65 | 5up/5dn | exactly neutral |
+| lcm | 0.88 | 0.71 | 0.69 | 4up/5dn | batch-2 alone (loosened caps) 0.64->0.68; tight caps were the regression |
+
+Conclusions:
+- The qualitative review's diagnoses were correct and the flat fixes
+  (two-step fold + USER cap + 2560 backstop) recover ~a quarter of its
+  decay. Fixes land 0.65-0.69: a statistical tie at the top.
+- LCM word caps must not go below the D1 leaf budget (150): the repair
+  net restores ids/TOPICS but not fact text. 150/120/100 is neutral-good.
+- Ledger5's arity-N fixes (3-fact render, aggregation riders) did NOT
+  move M. Batch-2 forensics on its 9 zero-score clean runs: 5 are
+  counting/aggregation with premature closure ("you serviced **1 bike**"
+  when gold=2; "one kitchen item" when gold=5; graduations 1 vs 3;
+  most-money-grocery max) -- the model counts what the render/search
+  surfaces and stops. 2 recency/current-value (recent-trip, road-vs-
+  mountain bike), 1 multi-hop temporal, 1 "not enough info" gold it
+  answered over. The ledger's loss is access at answer time, not
+  storage: facts exist in aged topics but no path guarantees ALL of a
+  topic's fact rows reach the view when a count is asked.
+
+### The stable headline: architecture ties, loss pattern is the finding
+
+At 10x horizon every arm decays ~0.15-0.24; best fixes claw back
+0.05-0.08; post-fix arms tie at 0.65-0.69. Flat-compact never decays
+AWAY from the pack (it fell the most, -0.24, but into a tie) because
+rolling rewrite is accidental re-consolidation and LongMemEval's
+knowledge-update/current-value questions reward recency bias -- a
+rolling window is accidentally well-matched. Third independent "boring
+thing ties/wins" data point after Letta's filesystem result and EMem.
+Open: structure's value needs the corpus nobody has -- sparse contact
+over months, relationship drift, nothing recent.
