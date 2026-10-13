@@ -55,6 +55,8 @@ from context_eval.types import PromptMessage, Role, Usage
 
 HEAD_TOKENS = 12_000  # verbatim head, identical across modes
 BACK_TOKENS = 4_096  # resident memory block cap, identical across modes
+_RIDER_LINE_CAP = 16  # max ledger lines surfaced per history_search
+_AGED_TOPIC_FACTS = 3  # facts per recency-aged topic in the render (was 1)
 MAX_SPAN_CHARS = 64_000  # per-call extraction/summary chunk (chars)
 # Boundary overlap: each chunk after the first repeats the tail of the
 # previous one as context. Topics spanning a boundary lose their anchor
@@ -884,13 +886,28 @@ class SawtoothBack(Strategy):
             # 'tennis racket', not topics like 'user profile/wellness').
             if self.mode == "ledger5":
                 result_ids = {mid for mid, _ in results}
-                riders = [
-                    ln for ln in self._lines5
-                    if set(ln.ids) & result_ids
+                # two reactivation channels: id overlap (the hit cites a
+                # ledger line) and topic-name overlap (the query names a
+                # topic). Topics pull in ALL their member lines -- an
+                # arity-N sum (charity $250+$600+$5,000) needs every
+                # member of the topic co-resident, not just the one line
+                # the render can afford (m25: the render guarantees ONE
+                # fact per aged topic; 12 tool calls still scored 0).
+                topics = self._v5_match_topics(str(args.get("query", "")))
+                keys = {k.casefold() for k in topics}
+                picked: list = []
+                for ln in self._lines5:
+                    k = f"{ln.umbrella}/{ln.topic}".casefold()
+                    if (set(ln.ids) & result_ids) or (k in keys and ln.text):
+                        picked.append(ln)
+                # newest first, bounded: the rider is evidence, not a
+                # second render
+                picked = sorted(picked, key=lambda ln: ln.seq, reverse=True)[
+                    :_RIDER_LINE_CAP
                 ]
-                if riders:
-                    out += "\n\nLedger lines citing these messages:\n" + "\n".join(
-                        f"- {ln.text} [{ln.umbrella}/{ln.topic}]" for ln in riders
+                if picked:
+                    out += "\n\nLedger lines citing these messages or matching topics:\n" + "\n".join(
+                        f"- {ln.text} [{ln.umbrella}/{ln.topic}]" for ln in picked
                     )
             return out
 
@@ -1434,8 +1451,15 @@ def render_ledger5(lines, uses, tooth, dials, counter, cap):
         progressed = False
         for w in active:
             for t in w.topics:
-                if kept.get(t.key) and (tooth - t.last_use) > dials.recency_floor_full:
-                    continue  # L0 needs a use within the recency floor
+                n_kept = len(kept.get(t.key, ()))
+                if n_kept and (tooth - t.last_use) > dials.recency_floor_full:
+                    # Aged topics get a soft cap, not the old hard stop at
+                    # one fact: arity-N answers (sums over events) need
+                    # several co-resident facts from one aged topic; the
+                    # one-fact rule is exactly why the charity total
+                    # ($250+$600+$5,000) became unreachable at 21 teeth.
+                    if n_kept >= _AGED_TOPIC_FACTS:
+                        continue
                 nxt = next(
                     (f for f in reversed(t.facts)
                      if f.seq not in keptseq.get(t.key, set())),

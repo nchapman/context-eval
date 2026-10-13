@@ -226,7 +226,10 @@ class TestRender:
         block, _ = render(lines, uses, tooth=5)
         assert "port: in progress" in block
 
-    def test_recency_floor_caps_old_topics_at_one_line(self):
+    def test_recency_floor_caps_aged_topics_at_three_lines(self):
+        """Aged topics get a soft cap (3), not the old hard stop at one:
+        arity-N sums need several co-resident facts from one aged topic
+        (m25 charity: $250+$600+$5,000 unreachable at 21 teeth)."""
         lines = [
             L(i, "kvarn", "port", "note", f"detail number {i}", 1)
             for i in range(5)
@@ -235,8 +238,8 @@ class TestRender:
         dials = Ledger5Dials(recency_floor_full=8, seal_after_teeth=200)
         block, rungs = render(lines, uses, tooth=40, dials=dials, cap=4096)
         kept = next(r for r in rungs if r["topic"] == "port")["kept"]
-        assert kept == 1  # budget is ample; the floor is what binds
-        assert "detail number 4" in block  # newest line survives
+        assert kept == 3  # budget is ample; the aged cap is what binds
+        assert "detail number 4" in block  # newest lines survive
 
     def test_fill_takes_newest_fact_under_budget_pressure(self):
         """Regression: the fill must take the NEWEST unfilled fact (the

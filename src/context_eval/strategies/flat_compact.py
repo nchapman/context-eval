@@ -43,24 +43,33 @@ KEEP_TAIL_FRAC = 0.25  # tail kept verbatim, as a fraction of budget
 # $5,000 / $250 lost to vagueness) -- an EVENTS section co-locates
 # name/date/amount so multi-session aggregation survives the fold.
 _FLAT_SUMMARY_WORDS = 300
+# The 1024-token shared backstop truncated M-scale folds mid-bullet (the
+# USER run-on alone could exceed it), silently dropping whole sections
+# every fold -- the qualitative review found summaries ending mid-word
+# with no FACTS/STATE ever emitted.
+_FLAT_BACKSTOP_TOKENS = 2560
 _FLAT_PROMPT = f"""Summarize this agent session history (chat or coding) for future
-reference as a flat, sectioned summary. Use exactly these sections:
+reference as a flat, sectioned summary. Do this in two steps:
+STEP 1 - from NEW HISTORY SINCE only, list every dated event and every
+specific value (names, numbers, dates, ids).
+STEP 2 - merge that list into the PREVIOUS SUMMARY's sections, carrying
+prior bullets forward. Never skip step 1: new history MUST enter the
+summary even when the PREVIOUS SUMMARY already covers the topic.
 
-USER: who the user is and prefers (role, sustained interests, explicit
-likes/dislikes and constraints), one line.
-EVENTS: one bullet per dated event, as `name — date — amount/outcome`.
+USER: at most 5 lines - role, location, sustained traits, CURRENT values
+only. Do NOT add new interests or topics here; route each new topic to
+FACTS. When a value changes, replace the old one ('previously X' once);
+never keep both, never list one entity twice.
+EVENTS: one bullet per dated event, as `name - date - amount/outcome`.
 Every event with a date, number, or count gets its own bullet; never
-merge events, never drop amounts.
+merge events, never drop amounts. Resolve relative dates to absolute
+YYYY/MM/DD using the segment's [YYYY/MM/DD] stamps.
 FACTS: every other specific value (ids, tokens, numbers, names,
 versions, file paths, commands and outcomes, errors and resolutions).
 STATE: the current task/goal and open threads, one or two lines.
 
-When a PREVIOUS SUMMARY is included, carry its EVENTS and FACTS bullets
-forward verbatim unless superseded by newer history. When a value is
-corrected or updated later, REPLACE the earlier bullet with the new value
-(you may append 'previously X' once); never keep both. Keep the whole
-summary under ~{_FLAT_SUMMARY_WORDS} words.
-Mark where each fact came from as [§<id>].
+Keep the whole summary under ~{_FLAT_SUMMARY_WORDS} words.
+Mark where each fact came from as [<id>].
 
 SEGMENT:
 {{segment}}"""
@@ -135,7 +144,8 @@ class FlatCompact(Strategy):
         prompt = _FLAT_PROMPT.format(segment="\n".join(segment_parts))
 
         completion = engine.llm.complete(
-            [{"role": "user", "content": prompt}], **summary_call_kwargs()
+            [{"role": "user", "content": prompt}],
+            **{**summary_call_kwargs(), "max_tokens": _FLAT_BACKSTOP_TOKENS},
         )
         if completion.usage:
             self._overhead.add(completion.usage)

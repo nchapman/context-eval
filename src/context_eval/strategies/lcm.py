@@ -106,7 +106,9 @@ _DN_PROMPT = (
     """These are summaries of consecutive earlier segments of one agent session.
 Consolidate them into one higher-level summary. Keep every specific value
 (ids, tokens, numbers, names, versions) and their [§<id>] references; keep
-each dated event's date; drop narrative. Keep the summary under ~150 words.
+each dated event's date; drop narrative. Write as dated bullets
+(`- name — date — value [§id]`), not prose. Keep the summary under
+~{words} words.
 """
     + (
         "Your TOPICS line is the union of the children's TOPICS lines: deduplicate\n"
@@ -116,6 +118,42 @@ each dated event's date; drop narrative. Keep the summary under ~150 words.
     )
     + "\nSUMMARIES:\n{summaries}"
 )
+
+
+def _dn_words(depth: int) -> int:
+    """Depth-scaled consolidation cap: roots at 400+ words parse as identity
+    soup and violate the stated cap anyway (m25 qualitative review: D4
+    nodes rendered 400-800 words, unioning conflicting personas)."""
+    return {2: 120, 3: 100}.get(depth, 90)
+
+
+def _repair_consolidation(text: str, group: list[_Node]) -> str:
+    """Deterministic lossless-consolidation net: children's [§ids] and
+    TOPICS union that the LLM dropped get appended, not lost (m25: D4
+    roots silently dropped TOPICS and orphaned the 5th model kit in a
+    sibling; nothing checked the merge contract)."""
+    child_ids = sorted(
+        {i for n in group for i in re.findall(r"§([A-Za-z0-9_-]+)", n.summary)}
+    )
+    kept_ids = set(re.findall(r"§([A-Za-z0-9_-]+)", text))
+    missing = [i for i in child_ids if i not in kept_ids]
+    if missing:
+        text += "\nRefs kept: " + ", ".join(f"§{i}" for i in missing)
+    if _TOPICS_IN_PROMPTS and "TOPICS:" not in text:
+        topics: dict[str, str] = {}
+        for n in group:
+            m = re.search(r"TOPICS:\s*(.+)", n.summary)
+            if not m:
+                continue
+            for item in m.group(1).split(";"):
+                name, _, status = item.strip().partition("|")
+                if name:
+                    topics[name] = status or "open"
+        if topics:
+            text += "\nTOPICS: " + "; ".join(
+                f"{k}|{v}" for k, v in topics.items()
+            )
+    return text
 
 
 _DATE_PREFIX = re.compile(r"^\[(\d{4}/\d{2}/\d{2})\]")
@@ -316,9 +354,15 @@ class LCMDagger(Strategy):
         if engine.llm is None:
             return None
         summaries = "\n---\n".join(n.summary for n in group)
+        depth = group[0].depth + 1
         try:
             completion = engine.llm.complete(
-                [{"role": "user", "content": _DN_PROMPT.format(summaries=summaries)}],
+                [{
+                    "role": "user",
+                    "content": _DN_PROMPT.format(
+                        summaries=summaries, words=_dn_words(depth)
+                    ),
+                }],
                 **summary_call_kwargs(),
             )
         except Exception:
@@ -327,8 +371,9 @@ class LCMDagger(Strategy):
         text = completion.text.strip()
         if not text:
             return None
+        text = _repair_consolidation(text, group)
         covers = tuple(mid for n in group for mid in n.covers)
-        return _Node(depth=group[0].depth + 1, summary=text, covers=covers)
+        return _Node(depth=depth, summary=text, covers=covers)
 
     # --- view ----------------------------------------------------------------
 

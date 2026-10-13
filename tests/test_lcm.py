@@ -491,3 +491,24 @@ class TestFlatSectionedPrompt:
         for section in ("USER:", "EVENTS:", "FACTS:", "STATE:", "PREVIOUS SUMMARY"):
             assert section in _FLAT_PROMPT
         assert "{segment}" in _FLAT_PROMPT
+
+
+class TestConsolidationRepair:
+    def test_missing_ids_and_topics_get_appended(self):
+        from context_eval.strategies.lcm import _Node, _repair_consolidation
+
+        kids = [
+            _Node(depth=2, summary="A: x §m000001\nTOPICS: kites|open", covers=("m000001",)),
+            _Node(depth=2, summary="B: y §m000002\nTOPICS: soot|done", covers=("m000002",)),
+        ]
+        parent = "Merged prose that dropped everything."
+        out = _repair_consolidation(parent, kids)
+        assert "§m000001" in out and "§m000002" in out
+        assert "kites|open" in out and "soot|done" in out
+
+    def test_kept_ids_untouched(self):
+        from context_eval.strategies.lcm import _Node, _repair_consolidation
+
+        kids = [_Node(depth=2, summary="A §m000001", covers=("m000001",))]
+        out = _repair_consolidation("kept §m000001 fine", kids)
+        assert "Refs kept" not in out

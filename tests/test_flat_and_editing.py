@@ -275,3 +275,17 @@ class TestCalibratedCall:
         assert all(k["reasoning"] == {"enabled": False} for k in llm.kwargs)
         assert all(k["require_content"] for k in llm.kwargs)
         assert "300 words" in llm.prompts[0]  # flat sectioned prompt cap
+
+
+class TestTwoStepFoldPrompt:
+    def test_prompt_pins_extraction_and_user_cap(self):
+        from context_eval.strategies.flat_compact import (
+            _FLAT_BACKSTOP_TOKENS,
+            _FLAT_PROMPT,
+        )
+
+        assert "STEP 1" in _FLAT_PROMPT and "STEP 2" in _FLAT_PROMPT
+        assert "PREVIOUS SUMMARY" in _FLAT_PROMPT
+        assert "at most 5 lines" in _FLAT_PROMPT
+        assert "YYYY/MM/DD" in _FLAT_PROMPT  # relative dates resolved
+        assert _FLAT_BACKSTOP_TOKENS >= 2048
