@@ -479,3 +479,17 @@ three-way race -- ledger5 0.68 / LCM 0.73 / flat 0.68; LCM's edge =
 multi-session aggregation (0.65 vs 0.53/0.38), flat won temporal (0.50).
 Not a benchmark number (early-sample bias); retained here as the hypothesis
 the dev25 loop tests. Bad/partial data deleted; dev25 iteration begins.
+
+### M25 first attempt — key cap, not a result (2025-10-12)
+
+The first m25 sweep died instantly: OpenRouter HTTP 403 `Key limit
+exceeded (total limit)` on all 25 lcm runs; flat wrote no answers,
+ledger5 got 2 answers (1/2) before the cap tripped everything. Wall
+5m21s for 75 runs was the tell. Deleted in full; treat any
+sub-5-minute 75-run sweep as a provider event until proven otherwise.
+Single-sample smokes that DID complete before the cap (kept in /tmp,
+not results/): on gpt4_372c3eed (education years, gold 10) at 1.02M
+raw tokens, flat folded 24x and scored 0.00 answering from population
+priors ("the typical four years of high school") while ledger5 cut 21
+teeth and scored 1.00 -- the compounding-vs-verbatim thesis on the
+very first M question.
