@@ -56,7 +56,9 @@ versions, file paths, commands and outcomes, errors and resolutions).
 STATE: the current task/goal and open threads, one or two lines.
 
 When a PREVIOUS SUMMARY is included, carry its EVENTS and FACTS bullets
-forward verbatim unless superseded by newer history. Keep the whole
+forward verbatim unless superseded by newer history. When a value is
+corrected or updated later, REPLACE the earlier bullet with the new value
+(you may append 'previously X' once); never keep both. Keep the whole
 summary under ~{_FLAT_SUMMARY_WORDS} words.
 Mark where each fact came from as [§<id>].
 
