@@ -289,3 +289,26 @@ class TestTwoStepFoldPrompt:
         assert "at most 5 lines" in _FLAT_PROMPT
         assert "YYYY/MM/DD" in _FLAT_PROMPT  # relative dates resolved
         assert _FLAT_BACKSTOP_TOKENS >= 2048
+
+
+class TestFlatCompactV2:
+    def test_registered_and_distinct(self):
+        from context_eval.strategies import build
+        from context_eval.strategies.flat_compact import FlatCompact
+        from context_eval.strategies.flat_compact_v2 import FlatCompactV2
+
+        s = build("flat-compact-v2")
+        assert isinstance(s, FlatCompactV2)
+        assert isinstance(s, FlatCompact)  # inherits mechanics
+        assert s.name == "flat-compact-v2"
+
+    def test_fold_prompt_is_cue_card_not_digest(self):
+        from context_eval.strategies.flat_compact import FlatCompact
+        from context_eval.strategies.flat_compact_v2 import FlatCompactV2
+
+        v2 = FlatCompactV2()._fold_prompt("SEG")
+        base = FlatCompact()._fold_prompt("SEG")
+        assert "TOPIC INDEX" in v2 and "history_search" in v2
+        assert "EVENTS:" not in v2  # digest sections are gone
+        assert v2 != base
+        assert "SEG" in v2 and "{segment}" not in v2

@@ -141,7 +141,7 @@ class FlatCompact(Strategy):
             segment_parts.append("NEW HISTORY SINCE:")
         for msg in messages[self._summarized_upto : tail_start]:
             segment_parts.append(f"[§{msg.id}] {msg.role.value}: {msg.content}")
-        prompt = _FLAT_PROMPT.format(segment="\n".join(segment_parts))
+        prompt = self._fold_prompt("\n".join(segment_parts))
 
         completion = engine.llm.complete(
             [{"role": "user", "content": prompt}],
@@ -173,6 +173,10 @@ class FlatCompact(Strategy):
             m.to_prompt() for m in engine.store.messages()[self._summarized_upto :]
         )
         return view
+
+    def _fold_prompt(self, segment: str) -> str:
+        """The compaction instruction; v2 variants override this hook."""
+        return _FLAT_PROMPT.format(segment=segment)
 
     # -- recall tools (parity with lcm/retrieval) ----------------------------
 

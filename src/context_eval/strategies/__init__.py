@@ -5,6 +5,7 @@ from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyS
 from context_eval.strategies.conclusions import ConclusionsMemory
 from context_eval.strategies.context_editing import ContextEditing
 from context_eval.strategies.flat_compact import FlatCompact
+from context_eval.strategies.flat_compact_v2 import FlatCompactV2
 from context_eval.strategies.full_context import FullContext
 from context_eval.strategies.lcm import LCMDagger
 from context_eval.strategies.representation import RepresentationMemory
@@ -27,6 +28,7 @@ REGISTRY = {
     "retrieval": RetrievalOnly,
     "context-editing": ContextEditing,
     "flat-compact": FlatCompact,
+    "flat-compact-v2": FlatCompactV2,
     "arc": ARCCitations,
     "lcm": LCMDagger,
     "representation": RepresentationMemory,
