@@ -42,23 +42,33 @@ def load(path):
 
 def dev100_seen_ids():
     """The 25 tuning ('seen') sample_ids: the first 25 samples of the dev100
-    corpus file (dev25 ⊂ dev100 by construction; see scripts/build_devset.py)."""
+    corpus file (dev25 ⊂ dev100 by construction; see scripts/build_devset.py).
+    Returns None (with a warning) if the gitignored corpus is absent or
+    unreadable, so the rest of the analysis still runs."""
     seen = set()
-    with open('data/longmemeval_dev100.jsonl') as f:
-        for i, line in enumerate(f):
-            if i >= 25:
-                break
-            seen.add(json.loads(line)['sample_id'])
-    return seen
+    try:
+        with open('data/longmemeval_dev100.jsonl') as f:
+            for i, line in enumerate(f):
+                if i >= 25:
+                    break
+                seen.add(json.loads(line)['sample_id'])
+    except (OSError, json.JSONDecodeError, KeyError) as exc:
+        print(f'  [warn] seen/fresh split unavailable: {exc}')
+        return None
+    return seen or None
 
 
 def cells(runs, strat):
-    """(sample_id, qid) -> (score, category, prediction), per strategy."""
+    """(sample_id, qid) -> (score, category, prediction), per strategy.
+    Errored answers (score_method == 'error') are excluded, matching the
+    harness's own report.py convention."""
     out = {}
     for r in runs:
         if r.get('strategy') != strat:
             continue
         for a in r.get('answers') or []:
+            if a.get('score_method') == 'error':
+                continue
             qid = (r['sample_id'], (a.get('meta') or {}).get('question_id') or a['question'][:60])
             score = a.get('score') if isinstance(a.get('score'), (int, float)) else 0.0
             out[qid] = (score, a.get('category'), a.get('prediction') or '')
@@ -102,14 +112,77 @@ for gname, paths in groups.items():
             b01 = sum(1 for q in common if flat[q][0] == 0 and led[q][0] >= 0.5)
             b10 = sum(1 for q in common if flat[q][0] >= 0.5 and led[q][0] < 0.5)
             row.append(f'flat0/led1={b01} flat1/led0={b10}')
-        print(f'  {name:<28} n={len(common):>3} ' + ' '.join(row))
+        accs = ' '.join(row)
+        print(f'  {name:<28} n={len(common):>3} {accs}')
+
     print('  --- pooled:')
     for a in ARMS:
         n, s = per_arm_tot[a]
-        print(f'  {a:<18} n={n:>4} acc={s / n:.3f}')
+        mean = f'{s / n:.3f}' if n else 'n/a (no answers)'
+        print(f'  {a:<18} n={n:>4} acc={mean}')
         if seen is not None:
             for grp in ('seen', 'fresh'):
                 gn, gs = split_tot[a][grp]
-                print(f'     {grp:<5} n={gn:>4} acc={gs / gn:.3f}')
+                gmean = f'{gs / gn:.3f}' if gn else 'n/a'
+                print(f'     {grp:<5} n={gn:>4} acc={gmean}')
         cats = sorted(per_arm_cat[a].items(), key=lambda x: -x[1][0])
-        print('     ' + '  '.join(f'{c}:{v[1] / v[0]:.2f}(n={v[0]})' for c, v in cats))
+        if cats:
+            print('     ' + '  '.join(f'{c}:{v[1] / v[0]:.2f}(n={v[0]})' for c, v in cats))
+
+# Pooled pairwise discordants, flat vs ledger5, over every fresh-S
+# comparison (dev100 sweeps + both s25 matched sets). Pairwise (flat ∩
+# ledger5) intersection, NOT the 3-arm common set -- this is the 2-arm
+# statistic behind findings §5's McNemar, reproduced from raw rows.
+FRESH_S = [f'results/longmemeval/dev100/sweep{i}.jsonl' for i in (1, 2, 3)] + [
+    f'{M25}/s25_fresh_matched.jsonl',
+    f'{M25}/s25_fresh2_matched.jsonl',
+]
+
+
+def disc(scores):
+    """+1 if only ledger5 is right, -1 if only flat is right, else 0."""
+    f = scores.get('flat-compact', 0) >= 0.5
+    led = scores.get('sawtooth-ledger5', 0) >= 0.5
+    return 1 if led and not f else -1 if f and not led else 0
+
+
+tot01 = tot10 = 0
+for p in FRESH_S:
+    by = {}
+    for r in load(p):
+        for a in r.get('answers') or []:
+            if a.get('score_method') == 'error':
+                continue
+            qid = (r['sample_id'], (a.get('meta') or {}).get('question_id') or a['question'][:60])
+            by.setdefault(qid, {})[r['strategy']] = a.get('score') or 0
+    tot01 += sum(1 for A in by.values() if disc(A) == 1)
+    tot10 += sum(1 for A in by.values() if disc(A) == -1)
+n = tot01 + tot10
+chi2 = (tot01 - tot10) ** 2 / n if n else float('nan')
+print('\n########## fresh-S pooled pairwise discordants (flat vs ledger5)')
+print(f'  ledger-wins={tot01} flat-wins={tot10} McNemar chi2={chi2:.2f}')
+
+# M matched base-vs-fixed pooled split (findings §5 table, bottom row):
+# base = sweeps 2+3, fixed = their post-fix re-runs 4+5. All answered
+# (non-error) questions per arm -- not the 3-arm intersection.
+M_BASE = [f'{M25}/sweep2_fresh.jsonl', f'{M25}/sweep3_fresh2.jsonl']
+M_FIXED = [f'{M25}/sweep4_fresh1_fixed.jsonl', f'{M25}/sweep5_fresh2_fixed.jsonl']
+
+
+def arm_acc(paths, strat):
+    n = s = 0
+    for p in paths:
+        for r in load(p):
+            if r['strategy'] != strat:
+                continue
+            for a in r.get('answers') or []:
+                if a.get('score_method') == 'error':
+                    continue
+                n += 1
+                s += a.get('score') or 0
+    return s / n if n else float('nan')
+
+
+print('\n########## M matched base -> fixed (pooled per arm)')
+for strat in ARMS:
+    print(f'  {strat:<18} base={arm_acc(M_BASE, strat):.3f} fixed={arm_acc(M_FIXED, strat):.3f}')

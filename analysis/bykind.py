@@ -27,6 +27,8 @@ for p in files:
     by = defaultdict(lambda: [0, 0.0])
     for r in runs:
         for a in (r.get('answers') or []):
+            if a.get('score_method') == 'error':
+                continue  # harness convention (report.py)
             k = f"{a.get('kind')}/{a.get('category') or ''}"
             by[k][0] += 1
             by[k][1] += a.get('score') if isinstance(a.get('score'), (int, float)) else 0.0

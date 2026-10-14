@@ -35,6 +35,9 @@ for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
         cells = defaultdict(lambda: [0, 0.0, 0, 0])  # kind -> [n, sum, blank, err]
         for r in rs:
             for a in (r.get('answers') or []):
+                if a.get('score_method') == 'error':
+                    # harness convention (report.py): errored answers leave the denominator
+                    continue
                 k = a.get('kind', '?')
                 c = a.get('category') or ''
                 sc = a.get('score')

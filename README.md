@@ -150,7 +150,7 @@ not exist yet (§8).
 |---|---|---|---|---|
 | dev100 fresh-75 (3 sweeps) | 0.74 | 0.77 | 0.71 | 75×3/arm |
 | s25 matched fresh sets | 0.82 | 0.88 | 0.86 | 50/arm |
-| M base → fixed (matched sets) | 0.59→**0.64** | 0.64→0.63 | 0.68→0.66 | 49–50/arm |
+| M base → fixed (matched sets) | 0.59→**0.64** | 0.65→0.63 | 0.68→0.66 | 48–50/arm |
 
 Ledger5 leads flat in 4 of 5 fresh comparisons and ties the fifth
 (discordants 25–16, χ²≈2.0, p≈0.16 — a probable ~3–6 pt edge, not a tie,

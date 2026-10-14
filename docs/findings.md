@@ -167,7 +167,12 @@ numbers only:
 |---|---|---|---|---|
 | dev100 fresh-75 (3 sweeps) | 0.74 | 0.77 | 0.71 | 75×3/arm |
 | s25 matched fresh sets | 0.82 | 0.88 | 0.86 | 50/arm |
-| M base → fixed (matched sets A/B) | 0.59→**0.64** | 0.64→0.63 | 0.68→0.66 | 49–50/arm |
+| M base → fixed (matched sets A/B) | 0.59→**0.64** | 0.65→0.63 | 0.68→0.66 | 48–50/arm |
+
+Convention throughout: errored answers (`score_method="error"`) are
+excluded from denominators, matching the harness's own `report.py`; the
+`analysis/` scripts implement the same rule and reproduce every row
+above from raw rows.
 
 - Ledger5 leads flat in 4 of 5 fresh sweep-level comparisons and ties
   the fifth (0.88 vs 0.88 on s25 set A); pooled paired discordants
@@ -183,7 +188,7 @@ numbers only:
   the ledger5 arity-N fixes were exactly neutral; lcm's tight caps cost
   it on set B (0.64→0.68 after loosening) though it settled at 0.66.
 - S→M decay, question-matched (answered-question convention): flat
-  −0.21/−0.24, lcm −0.12/−0.24, ledger5 −0.16/−0.32. Universal.
+  −0.21/−0.24, lcm −0.12/−0.24, ledger5 −0.13/−0.32. Universal.
 - A third M question set exists (sweep1: flat 0.64 / ledger5 0.88 /
   lcm 0.76) but was never re-run post-fix; it is excluded from the
   matched table above rather than mixed into it.
