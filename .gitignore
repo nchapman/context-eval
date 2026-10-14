@@ -9,3 +9,8 @@ results/
 .env
 .pi/
 data/pi_sessions.jsonl
+
+# derived analysis artifacts (regenerate with analysis/*.py)
+analysis/all_rows.json
+analysis/table.txt
+analysis/lme_deep.txt
