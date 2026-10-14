@@ -6,14 +6,20 @@ from collections import defaultdict
 
 def load(path):
     out = []
-    for line in open(path):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            out.append(json.loads(line))
-        except json.JSONDecodeError:
-            out.append({'_parse_error': True})
+    try:
+        f = open(path)
+    except OSError as exc:
+        print(f'  [warn] skipping unreadable {path}: {exc}')
+        return out
+    with f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                out.append({'_parse_error': True})
     return out
 
 files = sorted(

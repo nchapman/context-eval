@@ -160,6 +160,8 @@ tot01 = tot10 = 0
 for p in FRESH_S:
     by = {}
     for r in load(p):
+        if r.get('_parse_error'):
+            continue
         if seen_ids and r['sample_id'] in seen_ids:
             continue  # tuning samples are not eval numbers (findings §5)
         for a in r.get('answers') or []:
@@ -172,7 +174,13 @@ for p in FRESH_S:
 n = tot01 + tot10
 chi2 = (tot01 - tot10) ** 2 / n if n else float('nan')
 print('\n########## fresh-S pooled pairwise discordants (flat vs ledger5)')
-print(f'  ledger-wins={tot01} flat-wins={tot10} McNemar chi2={chi2:.2f}')
+if seen_ids is None:
+    # Without the corpus the tuning samples cannot be excluded; printing
+    # a number here would silently overstate the ledger edge (findings §5).
+    print('  [warn] dev100 corpus unavailable — fresh-only filter cannot apply;')
+    print('         pooled stat suppressed (restore data/longmemeval_dev100.jsonl).')
+else:
+    print(f'  ledger-wins={tot01} flat-wins={tot10} McNemar chi2={chi2:.2f}')
 
 # M matched base-vs-fixed pooled split (findings §5 table, bottom row):
 # base = sweeps 2+3, fixed = their post-fix re-runs 4+5. All answered

@@ -10,7 +10,12 @@ def blank(p):
 rows_out = []
 for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
     runs = []
-    with open(path) as f:
+    try:
+        f = open(path)
+    except OSError as exc:
+        print(f'  [warn] skipping unreadable {path}: {exc}')
+        continue
+    with f:
         for line in f:
             line = line.strip()
             if not line:
@@ -65,7 +70,8 @@ for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
             'cells': {k: [v[0], round(v[1]/v[0], 3), v[2], v[3]] for k, v in sorted(cells.items())},
         })
 
-json.dump(rows_out, open('analysis/all_rows.json', 'w'), indent=1)
+with open('analysis/all_rows.json', 'w') as out:
+    json.dump(rows_out, out, indent=1)
 # compact table
 for r in rows_out:
     print(
