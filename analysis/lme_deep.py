@@ -13,6 +13,13 @@ groups = {
         f'{M25}/sweep4_fresh1_fixed.jsonl',
         f'{M25}/sweep5_fresh2_fixed.jsonl',
     ],
+    # matched question sets: A = sweep2 (base) vs sweep4 (fixed), B = sweep3 vs sweep5
+    'M_matched': [
+        f'{M25}/sweep2_fresh.jsonl',
+        f'{M25}/sweep3_fresh2.jsonl',
+        f'{M25}/sweep4_fresh1_fixed.jsonl',
+        f'{M25}/sweep5_fresh2_fixed.jsonl',
+    ],
     'M_fixed': [f'{M25}/sweep4_fresh1_fixed.jsonl', f'{M25}/sweep5_fresh2_fixed.jsonl'],
     'S_matched': [f'{M25}/s25_fresh_matched.jsonl', f'{M25}/s25_fresh2_matched.jsonl'],
 }

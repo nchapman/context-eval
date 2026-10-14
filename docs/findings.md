@@ -34,26 +34,28 @@ only; all token/cost accounting through one counter. Three regimes:
    and aggregation — and the differences are large exactly there**
    (0.0 vs 0.9 continuity; +26 pts supersession) while ordinary QA
    differences stay ≤6 pts.
-3. **The prose hierarchy (LCM) never beats flat /compact.** On fresh
-   LongMemEval-S it is slightly *worse* (0.71 vs 0.74); on M it ties
-   post-fix (0.66 vs 0.64, n=50/cell); on real-session probes it loses
-   topic names like every other prose rewriter (continuity 0.02).
-   Hierarchy-as-prose is not worth its complexity at any regime tested.
+3. **The prose hierarchy (LCM) buys nothing over flat /compact.** On
+   fresh LongMemEval-S (dev100) it is slightly *worse* (0.71 vs 0.74);
+   it edges flat on the s25 matched sets (0.86 vs 0.82) and on M
+   post-fix (0.66 vs 0.64, n≈50/cell) — never by more than noise; on
+   real-session probes it loses topic names like every other prose
+   rewriter (continuity 0.02). Hierarchy-as-prose is not worth its
+   complexity at any regime tested.
 4. **The typed append-only ledger is the one structure that pays** —
-   modestly on external QA (best arm in 5/5 fresh S comparisons, pooled
-   discordants 25–15 vs flat, p≈0.11 — consistent direction, not
-   significant), decisively on inventory probes (0.77–0.91 vs 0.00–0.02
-   for all rewriters at 1–2M tokens), and it is the *only* design that
-   has ever enumerated at 5.5M tokens (continuity 0.70–0.80, §6) —
-   at cost parity with flat (§5).
+   modestly on external QA (best-or-tied in 5/5 fresh S comparisons —
+   4 wins, 1 tie; pooled paired discordants 25–16 vs flat, p≈0.16 —
+   consistent direction, not significant), decisively on inventory
+   probes (0.77–0.91 vs 0.00–0.02 for all rewriters at 1–2M tokens),
+   and it is the *only* design that has ever enumerated at 5.5M tokens
+   (continuity 0.70–0.80, §6) — at cost parity with flat (§5).
 5. **Flat /compact is genuinely robust on volume, but that is partly
    corpus luck.** An 8× budget squeeze (128K→16K, 12→126 folds/run)
    costs only 0.13 (0.80→0.67). But its failures are *shape* failures,
    not decay: multi-session aggregation sits at 0.50 at both budget
    extremes, and current-value tracking drops to 0.57 at 16K. LongMemEval
    rewards recency; a corpus with real drift would bite harder (§9).
-6. **Everything decays with horizon** (−0.17 to −0.32 question-matched
-   at 10×), and per-arm fixes claw back ~0.06–0.08 of it. The decay is
+6. **Everything decays with horizon** (−0.12 to −0.32 question-matched
+   at 10×), and per-arm fixes claw back ~0.05–0.08 of it. The decay is
    universal; the *loss pattern* is architectural (§4).
 
 ## 1. Cued recall: solved, everywhere
@@ -62,9 +64,9 @@ only; all token/cost accounting through one counter. Three regimes:
   arc 0.909, editing 0.75, window 0.773, full-context 0.806 with 4/22
   overflow. @64K: flat/retrieval 0.989, lcm 0.943.
 - Needles 1.00 on every arm in the stress grid (`final/g-*, t-*`), the
-  sawtooth grid, and the mega sessions (2 of ~50 mega needle answers were
-  refusals to parrot an obviously-injected line — a probe artifact, not
-  retrieval misses).
+  sawtooth grid, and the mega sessions (2 of 48 mega needle answers
+  scored 0 — both read by hand and confirmed as refusals to parrot an
+  obviously-injected line, a probe artifact, not retrieval misses).
 - LongMemEval budget extremes, flat only (n=30/cell, unseen samples):
   16K → 0.67 at ~126 folds/run; 128K → 0.80 at ~12. Category detail:
   temporal 0.83→1.00, knowledge-update 0.57→0.86, multi-session
@@ -102,7 +104,7 @@ prose arms lose entirely and the typed ledger takes over:
 |---|---|---|---|
 | flat-compact | 0.00 | 0.52 | 1.00 / 1.00 |
 | lcm | 0.02 | 0.64 | 1.00 / 1.00 |
-| conclusions (typed ledger) | 0.77 | 0.80 | 1.00 / 1.00 |
+| conclusions (typed ledger; post-extraction-fix grid64b runs) | 0.77 | 0.80 | 1.00 / 1.00 |
 
 Under the pinned-schedule sawtooth (identical teeth, only the back
 varies, 2 seeds × 3 sessions): no-back 0.05 continuity, prose rewrite
@@ -120,8 +122,13 @@ LongMemEval M (10× horizon), post-fix, question-matched sets (n=49–50/arm):
 |---|---|---|---|
 | knowledge-update (current value) | 0.62 | **0.88** | 0.75 |
 | multi-session (aggregate/count) | 0.50 | 0.43 | 0.57 |
-| temporal-reasoning | 0.57 | 0.54 | 0.50 |
+| temporal-reasoning | 0.57 | 0.54 \* | 0.50 |
 | single-session-user / -assistant | 0.83–1.00 | 0.83–1.00 | 0.83–1.00 |
+
+\* ledger5 temporal is n=13: two of its runs carry single-question
+errors that were dropped rather than scored 0 (as zeros it would read
+0.47). Flat and lcm are n=14. single-session-preference has n=2 and is
+omitted.
 
 - **Supersession separates**: flat keeps both the old and new value and
   the answerer picks wrong at depth (0.62); latest-wins dedupe holds
@@ -150,8 +157,11 @@ taxonomy is diagnostic, not decorative.
 
 ## 5. LongMemEval: the honest fresh numbers
 
-The tuning split (`dev25`) inflated *everyone* — all three arms score
-0.92–1.00 on the 25 seen samples. Fresh-sample numbers only:
+The tuning split (`dev25`) inflated *everyone* — in the dev100 runs
+(final configs) all three arms score 0.92–1.00 on those same 25 seen
+samples (the dev25 sweeps themselves show mid-tuning configs and
+lower pooled means: flat 0.83 / ledger5 0.92 / lcm 0.87). Fresh-sample
+numbers only:
 
 | comparison | flat | ledger5 | lcm | n |
 |---|---|---|---|---|
@@ -159,18 +169,24 @@ The tuning split (`dev25`) inflated *everyone* — all three arms score
 | s25 matched fresh sets | 0.82 | 0.88 | 0.86 | 50/arm |
 | M base → fixed (matched sets A/B) | 0.59→**0.64** | 0.64→0.63 | 0.68→0.66 | 49–50/arm |
 
-- Ledger5 leads flat in 5/5 fresh sweep-level comparisons; pooled
-  paired discordants 25–15 (McNemar χ²=2.5, p≈0.11). **Consistent
-  direction, individually underpowered — call it a probable ~3–6 pt
-  edge, not a tie, not a win.** Its wins concentrate in multi-session
-  and temporal; its losses are extraction misses and one superseded-
-  value slip (hand-checked, §8).
-- LCM ≤ flat on fresh S in all 3 sweeps. The hierarchy does not pay.
+- Ledger5 leads flat in 4 of 5 fresh sweep-level comparisons and ties
+  the fifth (0.88 vs 0.88 on s25 set A); pooled paired discordants
+  25–16 (McNemar χ²≈2.0, p≈0.16). **Consistent direction, individually
+  underpowered — call it a probable ~3–6 pt edge, not a tie, not a
+  win.** Its wins concentrate in multi-session and temporal; its
+  losses are extraction misses and one superseded-value slip
+  (hand-checked, §8).
+- LCM ≤ flat on fresh dev100 S in all 3 sweeps (0.71 vs 0.74) and
+  edges it on the s25 matched sets (0.86 vs 0.82) and on M (0.66 vs
+  0.64) — a wash at every n we have; the hierarchy does not pay.
 - The flat fix is real (+0.05 pooled, positive in both matched batches);
   the ledger5 arity-N fixes were exactly neutral; lcm's tight caps cost
   it on set B (0.64→0.68 after loosening) though it settled at 0.66.
-- S→M decay, question-matched: flat −0.21/−0.24, lcm −0.10/−0.24,
-  ledger5 −0.14/−0.32. Universal.
+- S→M decay, question-matched (answered-question convention): flat
+  −0.21/−0.24, lcm −0.12/−0.24, ledger5 −0.16/−0.32. Universal.
+- A third M question set exists (sweep1: flat 0.64 / ledger5 0.88 /
+  lcm 0.76) but was never re-run post-fix; it is excluded from the
+  matched table above rather than mixed into it.
 - **Costs are parity.** M overhead per 25 runs: flat $6.56–6.58,
   lcm $6.23–6.26, ledger5 $6.65–6.72; on dev100 flat's overhead is the
   *highest* ($2.18 vs ledger5 $1.27 per 100 runs). The earlier claims
@@ -180,7 +196,8 @@ The tuning split (`dev25`) inflated *everyone* — all three arms score
 ## 6. Mega scale: the resident-memory result (new, previously buried)
 
 At ~5.5M tokens / ~115–153 teeth every flat-grain back collapsed
-(R11 verified: continuity 0.0–0.3 for none/rewrite/ledger-v1/ledger4).
+(R11 verified: continuity 0.0–0.3 for none / ledger-v1 / ledger4; the
+rewrite back was not run at mega scale).
 The theory-driven ledger5 (activation-law ladder, append-only store,
 render-time demotion; `docs/resident-memory-theory.md`) was then run on
 the same mega sessions for dial collection (`results/collection/`,
@@ -192,16 +209,18 @@ the same mega sessions for dial collection (`results/collection/`,
 | currency | 0.40 / 0.20 | 0.60 / 0.60 / 0.40 / 0.90 |
 | needle / next-step | 1.0 / 1.0 | 1.0 / 1.0 |
 
-This is the theory's P1 prediction confirmed behaviorally: a
-hierarchical, activation-managed index holds enumeration at a depth
-where every flat structure fails — the mechanism the whole project was
-searching for. It lives in the recordings and a lit-review note, not in
-any prior headline.
+This supports the theory's P1 prediction behaviorally — with the
+strength caveat that it rests on 4 single runs from one session
+family — a hierarchical, activation-managed index holds enumeration
+at a depth where every flat structure fails, the mechanism the whole
+project was searching for. It lives in the recordings and a
+lit-review note, not in any prior headline.
 
 **Probe-validity caveat (measured, important):** with seeded naming
 moved to the first half of the stream, topics go quiet, seal, and the
-continuity answer curates them out (continuity 0.0 while currency reads
-10/10 — `results/validation/`). Enumeration is *mass-gated*: topics
+continuity answer curates them out (continuity 0.0 while currency
+reads 10/10; its one zero needle was another refusal —
+`results/validation/`). Enumeration is *mass-gated*: topics
 with recent mentions enumerate; sealed topics stay cued-status-
 reachable but not enumerated. The 0.7–0.8 number is for
 recently-active topics; treat "continuity" as two probes (active
@@ -210,18 +229,21 @@ enumeration, sealed recall) from here on.
 ## 7. What the earlier write-ups got wrong or oversold
 
 1. "Flat is statistically indistinguishable from hierarchical
-   compaction" — true for LCM, false as a generalization: it was
-   reached partly on tuning-set numbers and it buries the typed-ledger
-   edge (consistent 5/5 fresh wins) and the entire probe axis (0.0 vs
-   0.9), which is where architecture actually separates.
+   compaction" — true for LCM, but the generalization oversold: the
+   tie rested on the SWE suite and matched n≈50 sets while the
+   instrument-sensitivity argument drew partly on tuning-era effects,
+   and it read the ≤6-pt ledger5 edges as pure noise when the direction
+   was consistent in every fresh comparison. It also buried the entire
+   probe axis (0.0 vs 0.9 continuity), where architecture actually
+   separates.
 2. Cost ordering claims (both directions) — see §5; parity is the
    defensible statement.
 3. The R11 conclusion "nobody's continuity survives 10× depth" was
    true when written and is now superseded by §6.
-4. Sweep-level variance on M (flat 0.52–0.72 across fresh sets) means
-   any single n=25 sweep is noise; only matched-set and pooled
-   comparisons are meaningful. The final table used matched sets —
-   that part was right.
+4. Sweep-level variance on M (flat 0.52–0.72 across fresh sets,
+   answered-question convention) means any single n=25 sweep is noise;
+   only matched-set and pooled comparisons are meaningful. The final
+   table used matched sets — that part was right.
 
 ## 8. Judge and instrument validity
 
@@ -231,7 +253,10 @@ enumeration, sealed recall) from here on.
   on ledger extraction misses). Official LongMemEval check used.
 - Failure signatures audited across all files: no provider-death blanks
   in any table-cited run (the m25 key-cap incident was deleted and
-  re-run; overflow counts as wrong by design in `acc*` cells).
+  re-run; overflow counts as wrong by design in `acc*` cells). Five
+  scattered single-question errors exist in the cited LongMemEval
+  files (flat ×1, ledger5 ×4); each drops at most one question and is
+  footnoted where it touches a cited cell (§3).
 - Tuning-set inflation is real and measured (seen vs fresh, §5). Any
   future arm comparison must report seen/fresh separately.
 - Sensitivity record of the instrument (why small gaps are interpretable
@@ -250,8 +275,9 @@ enumeration, sealed recall) from here on.
    require-content retry). An uncalibrated call doesn't add noise — it
    silently no-ops while billing, and it re-ranks arms by call-count ×
    reasoning appetite. Biggest single lesson; unchanged.
-3. **Don't ship a prose hierarchy.** LCM never beat flat anywhere on
-   fresh data and its summaries lose topic names like flat's do.
+3. **Don't ship a prose hierarchy.** LCM never beat flat by more than
+   noise anywhere on fresh data and its summaries lose topic names
+   like flat's do.
 4. **If you need the agent to know what it's working on, ship a typed,
    append-only ledger assembled in code** (latest-wins dedupe,
    status-change lines, non-exhaustive-index footer). It is the only
@@ -273,9 +299,11 @@ enumeration, sealed recall) from here on.
 
 ## 10. Honest ledger
 
-- ~$479 recorded API spend on disk across the project ($137 answering,
-  $343 compaction/maintenance overhead); ≈4,900 run rows in `results/`
-  (merged and split copies of some legs overlap), one model.
+- ~$222 recorded API spend on disk across the project ($39 answering,
+  $183 compaction/maintenance overhead; run-level usage already
+  includes per-answer usage, so the two are summed once); ≈4,900 run
+  rows in `results/` (merged and split copies of some legs overlap),
+  one model.
 - n per claim is stated inline; anything below n≈50/cell or inside
   ±6 pts should be read as directional.
 - Raw rows for every table are in `results/` (paths cited inline);
