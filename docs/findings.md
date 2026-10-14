@@ -1,104 +1,285 @@
-# Findings: context-management strategies at long horizon
+# Findings (rewritten from raw data, 2025-10-14)
 
-Clean-room benchmark, one model throughout (deepseek-v4.1-flash via
-OpenRouter, vetted fp8 providers), question-matched arms, budgets
-bounding strategy views only, per-message cost through one counter.
-Corpora: LongMemEval-S (~115K tokens, 2–3 folds) and LongMemEval-M
-(~1.2M tokens, volume-compounding), plus a 16K/128K extremes bracket
-on a held-out 30-sample slice. Full history in `git log` and
-`docs/lit-review.md`; this document is the write-up.
+This document supersedes both earlier write-ups (the README's R1–R11 and
+the 10-13 "flat ties hierarchy" findings). Every number below was
+recomputed directly from the run rows in `results/` by independent
+scripts (`analysis/aggregate.py`, `analysis/lme_deep.py`,
+`analysis/bykind.py`) — not by `report.py` and not by reading the old
+documents first. Where a recomputation disagrees with an earlier claim,
+this document says so. Judge behavior was spot-checked by hand on
+discordant arm pairs (see §8). 406 tests green at time of writing.
 
-## The headline
+## The instrument (one paragraph)
 
-**At every regime we could test, the deployed default (flat /compact)
-is statistically indistinguishable from hierarchical compaction — and
-everything decays hard at 10× horizon.**
+Replay harness, one model throughout (`deepseek/deepseek-v4.1-flash` via
+OpenRouter, vetted fp8 providers). Arms are clean-room mechanisms over a
+shared verbatim archive + search tools; budgets bound the assembled view
+only; all token/cost accounting through one counter. Three regimes:
 
-| arms @64K | S (mild) | M (10×) baseline | M post-fix |
+| corpus | horizon | question source | key files |
 |---|---|---|---|
-| flat-compact | 0.82 | 0.58 | **0.65** |
-| sawtooth-ledger5 | 0.88 | 0.64 | 0.65 |
-| lcm (tree) | 0.86 | 0.68 | 0.69 |
+| SWE traces, LoCoMo | 8K–256K | seeded needles, corpus QA, continuity | `results/suite`, `results/final/g-*,t-*` |
+| real pi sessions + sawtooth grid | 1–2M tokens | continuity/currency/needle/next-step probes | `results/final/grid64*,saw-*` |
+| mega sessions (interleaved) | ~5.5M tokens, ~115–153 teeth | same probes | `results/mega`, `results/collection` |
+| LongMemEval S (~120K tok) / M (~1.2M tok) | external conversational QA, official judge | 5 categories | `results/longmemeval/{dev100,m25,v2}` |
 
-Budget extremes on unseen data (flat-compact only): 16K → 0.67 with
-~126 folds per run; 128K → 0.80 with ~12. An 8× budget squeeze and a
-10× fold count cost 0.13 accuracy. The deployed default is
-extraordinarily robust.
+## Headline answers
 
-## Why believe a tie? (the instrument's sensitivity record)
+1. **Cued single-fact recall is solved at every depth we could test.**
+   Needles ≈1.0 for every archive-preserving arm at 8K through 5.5M
+   tokens (verified in every file above). What the model can *name*, the
+   archive + search returns. This is why architecture comparisons on
+   ordinary QA keep tying.
+2. **What separates memory designs is uncued inventory, supersession,
+   and aggregation — and the differences are large exactly there**
+   (0.0 vs 0.9 continuity; +26 pts supersession) while ordinary QA
+   differences stay ≤6 pts.
+3. **The prose hierarchy (LCM) never beats flat /compact.** On fresh
+   LongMemEval-S it is slightly *worse* (0.71 vs 0.74); on M it ties
+   post-fix (0.66 vs 0.64, n=50/cell); on real-session probes it loses
+   topic names like every other prose rewriter (continuity 0.02).
+   Hierarchy-as-prose is not worth its complexity at any regime tested.
+4. **The typed append-only ledger is the one structure that pays** —
+   modestly on external QA (best arm in 5/5 fresh S comparisons, pooled
+   discordants 25–15 vs flat, p≈0.11 — consistent direction, not
+   significant), decisively on inventory probes (0.77–0.91 vs 0.00–0.02
+   for all rewriters at 1–2M tokens), and it is the *only* design that
+   has ever enumerated at 5.5M tokens (continuity 0.70–0.80, §6) —
+   at cost parity with flat (§5).
+5. **Flat /compact is genuinely robust on volume, but that is partly
+   corpus luck.** An 8× budget squeeze (128K→16K, 12→126 folds/run)
+   costs only 0.13 (0.80→0.67). But its failures are *shape* failures,
+   not decay: multi-session aggregation sits at 0.50 at both budget
+   extremes, and current-value tracking drops to 0.57 at 16K. LongMemEval
+   rewards recency; a corpus with real drift would bite harder (§9).
+6. **Everything decays with horizon** (−0.17 to −0.32 question-matched
+   at 10×), and per-arm fixes claw back ~0.06–0.08 of it. The decay is
+   universal; the *loss pattern* is architectural (§4).
 
-A null is only as good as the thermometer. This harness resolved every
-real effect it was pointed at, at the same n the arms tied:
+## 1. Cued recall: solved, everywhere
 
-- **S→M decay**: −0.18 to −0.24, consistent in direction across all
-  three arms (n=50, question-matched).
-- **The flat fix** (+0.08 then +0.06, two independent batches) after
-  its mechanism was diagnosed (fossilized summary, USER run-on,
-  mid-bullet truncation) — the number moved when and only when the
-  mechanism did.
-- **The lcm cap regression** (0.78→0.70 under too-tight consolidation
-  caps) and its recovery (0.64→0.68 after loosening): the instrument
-  tracked a ±0.08 effect through a confounded key-cap incident to a
-  correct causal attribution.
-- **Category spreads at fixed arm**: knowledge-update 0.57@16K vs
-  0.86@128K; multi-session 0.50 vs temporal 0.83–1.00 within one tier.
+- Suite @128K SWE (n=88/cell): lcm 0.955, flat 0.943, retrieval 0.943,
+  arc 0.909, editing 0.75, window 0.773, full-context 0.806 with 4/22
+  overflow. @64K: flat/retrieval 0.989, lcm 0.943.
+- Needles 1.00 on every arm in the stress grid (`final/g-*, t-*`), the
+  sawtooth grid, and the mega sessions (2 of ~50 mega needle answers were
+  refusals to parrot an obviously-injected line — a probe artifact, not
+  retrieval misses).
+- LongMemEval budget extremes, flat only (n=30/cell, unseen samples):
+  16K → 0.67 at ~126 folds/run; 128K → 0.80 at ~12. Category detail:
+  temporal 0.83→1.00, knowledge-update 0.57→0.86, multi-session
+  **0.50 at both corners** (`results/longmemeval/v2/sweep0_extremes.jsonl`).
 
-Arm-to-arm gaps at fixed regime (≤0.04 post-fix) are *smaller* than
-the effects above that the same design resolved. The tie is a
-measurement, not a vacuum.
+Archive + search makes *named* facts depth-robust. Every conclusion
+about architecture must therefore come from the probes below — which is
+also why earlier "tie" headlines on QA-heavy suites were structurally
+guaranteed.
 
-## The structure-loss taxonomy (the actual finding)
+## 2. Inventory: where architecture separates — and when
 
-The qualitative review (three independent read-throughs of the
-assembled views) found each arm loses memory in a characteristic,
-greppable way — and each pathology was confirmed by a targeted fix:
+Uncued "what has this session worked on?" after folding (LoCoMo stress
+grid, calibrated calls, n=10/cell):
 
-| arm | pathology | signature | fix effect |
+| arm | @8K | @16K |
+|---|---|---|
+| lcm (tree of small summaries) | 0.99 | 0.99 |
+| flat-compact (whole-map rewrite) | 0.53 | 0.96 |
+| representation (merge-churn) | 0.39 | 0.68 |
+| flat + one TOPICS prompt line | 0.84 | 0.92 |
+| lcm + same line | 1.00 | 1.00 |
+
+Separation begins exactly when compaction begins. The same instruction
+that rescues flat was *poison* under uncalibrated calls (shared
+completion cap → 42–61% of folds returned empty; reasoning-off +
+stated budget + require-content retry took it to zero — the single
+most consequential engineering finding of the project, unchanged from
+the earlier write-up).
+
+At real-session scale (1–2M tokens, 64K view, 3 sessions × 3 seeds) the
+prose arms lose entirely and the typed ledger takes over:
+
+| arm | continuity | currency | needle / next-step |
 |---|---|---|---|
-| flat | **truncation + fossilization** | byte-identical summary across 31 folds; mid-bullet cutoffs; identity reset ~fold 30 | two-step fold + USER cap + 2560 backstop: **+0.06–0.08** |
-| lcm | **union without supersession** | D4 roots = 400–800-word identity soup unioning contradictory personas; TOPICS silently dropped at depth | dated bullets + deterministic repair net; word caps must not undercut leaf budget |
-| ledger5 | **access capping** | one fact per aged topic in render; arity-1 answers survive, arity-N sums structurally unreachable | 3-fact render + aggregation riders: **neutral** — the loss is answer-time access, not storage |
+| flat-compact | 0.00 | 0.52 | 1.00 / 1.00 |
+| lcm | 0.02 | 0.64 | 1.00 / 1.00 |
+| conclusions (typed ledger) | 0.77 | 0.80 | 1.00 / 1.00 |
 
-Shared root: **no system repaints its memory structure mid-question**;
-retrieval-augmented answering sees a frozen view plus sticky-note tool
-results. Everyone loses structure at depth; the families differ only
-in *which* structure they lose.
+Under the pinned-schedule sawtooth (identical teeth, only the back
+varies, 2 seeds × 3 sessions): no-back 0.05 continuity, prose rewrite
+0.10, append-only prose segments 0.05, typed ledger 0.82 → 0.91 after
+status-semantics fixes. **Append-only is not the active ingredient —
+structure is**: frozen prose summaries tie evicting outright; typed,
+topic-keyed records that code can dedupe (latest-wins) carry the
+inventory.
 
-## The one hole flat does have
+## 3. Supersession and aggregation: the shape failures
 
-Multi-session (aggregation/count) questions: **0.50 at both extremes**
-— 16K and 128K alike, with only 12 folds at 128K. Half the "how many /
-which most" questions fail regardless of budget. That is not compaction
-decay; it is the digest's *shape*. It is the one regime where "flat is
-fine" has an asterisk. The cue-card v2 (one-line topic index driving
-precise `history_search`) was built and piloted on the 6 hardest
-samples: 0.50 vs baseline 0.17 there, tied with conversation-form
-folding of the stock prompt (0.50) — an unresolved confound between
-call shape and prompt, stopped at the budget floor. The asterisk
-stands; the cheapest open question is whether conversation-form folding
-alone recovers it.
+LongMemEval M (10× horizon), post-fix, question-matched sets (n=49–50/arm):
 
-## What this says to practitioners
+| category | flat | ledger5 | lcm |
+|---|---|---|---|
+| knowledge-update (current value) | 0.62 | **0.88** | 0.75 |
+| multi-session (aggregate/count) | 0.50 | 0.43 | 0.57 |
+| temporal-reasoning | 0.57 | 0.54 | 0.50 |
+| single-session-user / -assistant | 0.83–1.00 | 0.83–1.00 | 0.83–1.00 |
 
-1. Don't buy hierarchical complexity for conversational memory at
-   ≤1.2M tokens / ≤130 folds: the tie holds and flat costs less
-   (flat's compaction overhead ≈ one fold call per trigger; lcm pays
-   per-node consolidation on top).
-2. Do grep your own summaries for the fossils/soup/caps above — the
-   taxonomy is diagnostic, not just descriptive.
-3. The benchmarks that exist cannot show structure's value: LongMemEval
-   rewards recency (rolling windows are accidentally well-matched), and
-   its calendar span is ~10 days median — volume, not drift. The corpus
-   that would discriminate (sparse contact over months, changed
-   circumstances, superseded facts) does not exist anywhere we found.
+- **Supersession separates**: flat keeps both the old and new value and
+  the answerer picks wrong at depth (0.62); latest-wins dedupe holds
+  0.88. This is the digest-shape mechanism, and it is fixable in flat
+  (the sectioned "replace, never keep both" prompt was part of the +0.05
+  fix).
+- **Aggregation fails for everyone.** 0.43–0.57 on M; 0.50 for flat at
+  both budget extremes. Ledger5 forensics: the facts exist in the store
+  but no path guarantees *all* of a topic's rows reach the view when a
+  count is asked — the model counts what is rendered and stops ("you
+  serviced **1 bike**", gold 2). This is answer-time access, not
+  storage, and it is the open problem no arm solved.
 
-## Honest ledger
+## 4. The loss-mode table (verified)
 
-~$408 recorded API spend across the project's life (~$166 on its most
-expensive day; the last round ran ~$5 more on cheap fp8 providers). The final day's extremes run cost $23.17 against a $6–9 estimate
-(2.6×: fold count under-modeled, cache share over-modeled) and chiefly
-re-confirmed the headline — the write-up's sensitivity section exists
-so that confirmation is at least *usable*. Sharp cost discipline from
-here: estimates from measured $/call, never modeled rates; every live
-run pre-registered with its expected outcome and what would change the
-decision.
+| loss mode | who fails | signature | measured |
+|---|---|---|---|
+| uncued inventory | all prose rewriters (flat, lcm, segments) | topic names vanish from summaries | 0.00–0.10 continuity at 1–2M; 0.53 @8K folding |
+| supersession | flat | both values kept; old wins at depth | 0.57 @16K, 0.62 on M vs ledger5 0.88 |
+| answer-time access (aggregation) | **everyone** | counts what's rendered, stops | 0.43–0.57 multi-session on M; 0.50 at both extremes |
+| extraction recall | typed ledgers | what the extractor never records never exists | one prompt rule moved continuity 0.49→0.77 mid-grid |
+| call truncation (fixed) | all summarizers, pre-calibration | 42–61% empty folds, silent | reasoning-off + budget + retry → 0 empties in 60/60 |
+
+Every fix in the project's history lands in one of these rows — the
+taxonomy is diagnostic, not decorative.
+
+## 5. LongMemEval: the honest fresh numbers
+
+The tuning split (`dev25`) inflated *everyone* — all three arms score
+0.92–1.00 on the 25 seen samples. Fresh-sample numbers only:
+
+| comparison | flat | ledger5 | lcm | n |
+|---|---|---|---|---|
+| dev100 fresh-75 (3 sweeps) | 0.74 | 0.77 | 0.71 | 75×3/arm |
+| s25 matched fresh sets | 0.82 | 0.88 | 0.86 | 50/arm |
+| M base → fixed (matched sets A/B) | 0.59→**0.64** | 0.64→0.63 | 0.68→0.66 | 49–50/arm |
+
+- Ledger5 leads flat in 5/5 fresh sweep-level comparisons; pooled
+  paired discordants 25–15 (McNemar χ²=2.5, p≈0.11). **Consistent
+  direction, individually underpowered — call it a probable ~3–6 pt
+  edge, not a tie, not a win.** Its wins concentrate in multi-session
+  and temporal; its losses are extraction misses and one superseded-
+  value slip (hand-checked, §8).
+- LCM ≤ flat on fresh S in all 3 sweeps. The hierarchy does not pay.
+- The flat fix is real (+0.05 pooled, positive in both matched batches);
+  the ledger5 arity-N fixes were exactly neutral; lcm's tight caps cost
+  it on set B (0.64→0.68 after loosening) though it settled at 0.66.
+- S→M decay, question-matched: flat −0.21/−0.24, lcm −0.10/−0.24,
+  ledger5 −0.14/−0.32. Universal.
+- **Costs are parity.** M overhead per 25 runs: flat $6.56–6.58,
+  lcm $6.23–6.26, ledger5 $6.65–6.72; on dev100 flat's overhead is the
+  *highest* ($2.18 vs ledger5 $1.27 per 100 runs). The earlier claims
+  "lcm is the cheapest summarizer" and "flat costs less" were both
+  overstatements from different regimes; treat them as equal-price.
+
+## 6. Mega scale: the resident-memory result (new, previously buried)
+
+At ~5.5M tokens / ~115–153 teeth every flat-grain back collapsed
+(R11 verified: continuity 0.0–0.3 for none/rewrite/ledger-v1/ledger4).
+The theory-driven ledger5 (activation-law ladder, append-only store,
+render-time demotion; `docs/resident-memory-theory.md`) was then run on
+the same mega sessions for dial collection (`results/collection/`,
+4 runs):
+
+| probe | ledger4 (R11) | ledger5 + dials |
+|---|---|---|
+| continuity | 0.00 / 0.00 | **0.80 / 0.70 / 0.70 / 0.70** |
+| currency | 0.40 / 0.20 | 0.60 / 0.60 / 0.40 / 0.90 |
+| needle / next-step | 1.0 / 1.0 | 1.0 / 1.0 |
+
+This is the theory's P1 prediction confirmed behaviorally: a
+hierarchical, activation-managed index holds enumeration at a depth
+where every flat structure fails — the mechanism the whole project was
+searching for. It lives in the recordings and a lit-review note, not in
+any prior headline.
+
+**Probe-validity caveat (measured, important):** with seeded naming
+moved to the first half of the stream, topics go quiet, seal, and the
+continuity answer curates them out (continuity 0.0 while currency reads
+10/10 — `results/validation/`). Enumeration is *mass-gated*: topics
+with recent mentions enumerate; sealed topics stay cued-status-
+reachable but not enumerated. The 0.7–0.8 number is for
+recently-active topics; treat "continuity" as two probes (active
+enumeration, sealed recall) from here on.
+
+## 7. What the earlier write-ups got wrong or oversold
+
+1. "Flat is statistically indistinguishable from hierarchical
+   compaction" — true for LCM, false as a generalization: it was
+   reached partly on tuning-set numbers and it buries the typed-ledger
+   edge (consistent 5/5 fresh wins) and the entire probe axis (0.0 vs
+   0.9), which is where architecture actually separates.
+2. Cost ordering claims (both directions) — see §5; parity is the
+   defensible statement.
+3. The R11 conclusion "nobody's continuity survives 10× depth" was
+   true when written and is now superseded by §6.
+4. Sweep-level variance on M (flat 0.52–0.72 across fresh sets) means
+   any single n=25 sweep is noise; only matched-set and pooled
+   comparisons are meaningful. The final table used matched sets —
+   that part was right.
+
+## 8. Judge and instrument validity
+
+- Every discordant pair in dev100/sweep3 (n=6) hand-checked: scoring
+  correct; differences are real memory behavior (ledger wins on dates,
+  aggregation, honest abstention on under-determined golds; flat wins
+  on ledger extraction misses). Official LongMemEval check used.
+- Failure signatures audited across all files: no provider-death blanks
+  in any table-cited run (the m25 key-cap incident was deleted and
+  re-run; overflow counts as wrong by design in `acc*` cells).
+- Tuning-set inflation is real and measured (seen vs fresh, §5). Any
+  future arm comparison must report seen/fresh separately.
+- Sensitivity record of the instrument (why small gaps are interpretable
+  at all): it resolved the flat fix (+0.05, positive in both matched
+  batches), the lcm cap regression and recovery (±0.05 on set B), the
+  instruction flip (+31 pts @8K), and every
+  sawtooth back separation (0.05 vs 0.82). Gaps of ≤6 pts on fresh QA
+  remain inside noise; gaps ≥20 pts on probes are real.
+
+## 9. What this says to practitioners
+
+1. **Tail + searchable archive is the floor.** It solves named-fact
+   recall at any depth and costs ~$0 compaction. What it cannot do is
+   inventory, supersession, or aggregation.
+2. **Calibrate every utility call** (reasoning-off, stated budget,
+   require-content retry). An uncalibrated call doesn't add noise — it
+   silently no-ops while billing, and it re-ranks arms by call-count ×
+   reasoning appetite. Biggest single lesson; unchanged.
+3. **Don't ship a prose hierarchy.** LCM never beat flat anywhere on
+   fresh data and its summaries lose topic names like flat's do.
+4. **If you need the agent to know what it's working on, ship a typed,
+   append-only ledger assembled in code** (latest-wins dedupe,
+   status-change lines, non-exhaustive-index footer). It is the only
+   mechanism that held inventory at every scale tested through 5.5M
+   tokens, it wins supersession by +26 pts on M, and it costs the same
+   as flat. Audit extraction recall — it is the one failure surface.
+5. **Budget the resident block by concurrent workstream count, not
+   transcript length** (~30–40 tokens/workstream; saturation at
+   ~90–120 topics was measured before the activation-law ladder; the
+   ladder extends it but see §6's mass-gating caveat).
+6. **Aggregation/counting is unsolved for every design** — access at
+   answer time, not storage. Whoever fixes "count all of X" first wins
+   the category no arm can currently touch.
+7. **The discriminating corpus still does not exist.** LongMemEval's
+   calendar span is ~10 days median and rewards recency; flat's
+   shape-failures (supersession, aggregation) are exactly what sparse
+   multi-month contact with real drift would amplify. That remains the
+   highest-value dataset to build (see `docs/dataset-plan.md`).
+
+## 10. Honest ledger
+
+- ~$479 recorded API spend on disk across the project ($137 answering,
+  $343 compaction/maintenance overhead); ≈4,900 run rows in `results/`
+  (merged and split copies of some legs overlap), one model.
+- n per claim is stated inline; anything below n≈50/cell or inside
+  ±6 pts should be read as directional.
+- Raw rows for every table are in `results/` (paths cited inline);
+  recomputation scripts in `analysis/` produce every number in this
+  document from those rows.
+- The continuity probe's meaning changed once mid-project (§6); probe
+  configs are recorded per-run in the recordings.
