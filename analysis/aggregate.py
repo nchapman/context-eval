@@ -21,9 +21,10 @@ for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
             if not line:
                 continue
             try:
-                runs.append(json.loads(line))
+                row = json.loads(line)
             except json.JSONDecodeError:
-                runs.append({'_parse_error': True})
+                row = None
+            runs.append(row if isinstance(row, dict) else {'_parse_error': True})
     agg = defaultdict(lambda: {'n': 0, 'sum': 0.0, 'blank': 0, 'err': 0})
     n_runs = len(runs)
     run_errs = sum(1 for r in runs if r.get('error'))

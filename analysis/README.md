@@ -22,6 +22,7 @@ against `docs/findings.md`; the green gate (`ruff check`) only lint-checks
 them. Their input trees (`results/`, `data/`) are gitignored, so the
 harness test-suite cannot exercise them without fixtures that would
 duplicate the scripts' logic rather than check it. Guardrails that DO
-apply: malformed JSONL rows are skipped (`_parse_error`), unreadable or
-missing files warn and continue, and every number they print must
-reproduce a findings figure or the doc is wrong.
+apply: rows that fail to parse or are not JSON objects become
+`_parse_error` and are skipped, unreadable or missing files warn and
+continue, and every number they print must reproduce a findings figure
+or the doc is wrong.

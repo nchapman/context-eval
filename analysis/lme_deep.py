@@ -39,9 +39,10 @@ def load(path):
             if not line:
                 continue
             try:
-                runs.append(json.loads(line))
+                row = json.loads(line)
             except json.JSONDecodeError:
-                runs.append({'_parse_error': True})
+                row = None
+            runs.append(row if isinstance(row, dict) else {'_parse_error': True})
     return runs
 
 
@@ -69,7 +70,7 @@ def cells(runs, strat):
     harness's own report.py convention."""
     out = {}
     for r in runs:
-        if r.get('strategy') != strat:
+        if r.get('strategy') != strat or 'sample_id' not in r:
             continue
         for a in r.get('answers') or []:
             if a.get('score_method') == 'error':
@@ -160,7 +161,7 @@ tot01 = tot10 = 0
 for p in FRESH_S:
     by = {}
     for r in load(p):
-        if r.get('_parse_error'):
+        if r.get('_parse_error') or 'sample_id' not in r:
             continue
         if seen_ids and r['sample_id'] in seen_ids:
             continue  # tuning samples are not eval numbers (findings §5)
@@ -168,7 +169,7 @@ for p in FRESH_S:
             if a.get('score_method') == 'error':
                 continue
             qid = (r['sample_id'], (a.get('meta') or {}).get('question_id') or a['question'][:60])
-            by.setdefault(qid, {})[r['strategy']] = a.get('score') or 0
+            by.setdefault(qid, {})[r.get('strategy')] = a.get('score') or 0
     tot01 += sum(1 for A in by.values() if disc(A) == 1)
     tot10 += sum(1 for A in by.values() if disc(A) == -1)
 n = tot01 + tot10

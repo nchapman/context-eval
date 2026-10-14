@@ -17,9 +17,10 @@ def load(path):
             if not line:
                 continue
             try:
-                out.append(json.loads(line))
+                row = json.loads(line)
             except json.JSONDecodeError:
-                out.append({'_parse_error': True})
+                row = None
+            out.append(row if isinstance(row, dict) else {'_parse_error': True})
     return out
 
 files = sorted(
