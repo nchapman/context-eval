@@ -1,32 +1,43 @@
 # context-eval
 
-Clean-room benchmark of context-management strategies for coding agents.
-Replays recorded agent transcripts (SWE traces, LoCoMo dialogs, multi-day pi
-sessions) through pluggable strategies at fixed token budgets and measures
-needle/QA recovery, overflow behavior, and cache-aware cost. Headline
-question: does LCM-style hierarchical compaction beat the deployed default
-(flat `/compact`), and where?
+Clean-room benchmark of context-management strategies for coding and
+conversational agents. Replays recorded transcripts (SWE traces, LoCoMo
+dialogs, LongMemEval S/M sessions, real multi-day pi sessions, and
+~5.5M-token interleaved "mega" sessions) through pluggable strategies at
+fixed token budgets and measures needle/QA recovery, uncued inventory
+(continuity), status currency, overflow behavior, and cost. The findings
+live in `docs/findings.md` (data-first; recomputed by `analysis/`); the
+README is the main report.
 
 ## Layout
 
-- `src/context_eval/strategies/` — the seven arms (see REGISTRY in
-  `__init__.py`): `full-context`, `sliding-window` (anchors),
-  `context-editing` (Anthropic clear_tool_uses), `flat-compact` (Claude
-  Code /compact, OpenHands condenser), `retrieval` (BM25, recall.ts
-  policy), `arc` (arXiv:2607.25066), `lcm` (arXiv:2605.04050)
+- `src/context_eval/strategies/` — the arms (REGISTRY in `__init__.py`):
+  base arms `full-context`, `sliding-window`, `retrieval`, `context-editing`,
+  `flat-compact` (+`-v2` cue-card), `arc`, `lcm`, `representation`,
+  `conclusions`; and the `sawtooth-*` family (one pinned schedule,
+  interchangeable backs: `none`/`rewrite`/`segments`/`ledger`..`ledger5` —
+  ledger5 implements `docs/resident-memory-theory.md`)
 - `driver.py` — replay loop: append → `on_turn` → assemble → budget check;
   question-time tool interleaving; per-turn telemetry
-- `questions.py` — seeded needle injection (randomized line placement)
-- `judge.py`, `report.py` — scoring (needle substring, LoCoMo F1) and
-  aggregation (acc / acc* overflow-penalized, depth curves, Pareto)
+- `questions.py` — seeded needle/continuity/currency injection
+- `judge.py`, `report.py` — scoring (needle substring, LoCoMo F1, official
+  LongMemEval check) and aggregation (acc / acc* overflow-penalized, depth
+  curves, sanity gates — refuses cells with blank compactions)
 - `tokens.py` — `TokenCounter.count_message()` is the ONLY per-message
   cost authority (content + overhead + tool_call args)
-- `provider.py` — OpenRouter client, any-fp8 routing, 7-attempt backoff
-- `datasets/` — loaders (`swe`, `locomo`, `pi_session`); `scripts/` —
-  `preflight.py`, `run_suite.sh`, `thinking_arms.py`
-- `docs/` — `budgets.md` (tier framing), `lit-review.md` (per-paper
-  summaries + regime/model-behavior findings), `findings.md` (the
-  evidence report)
+- `provider.py` — OpenRouter client, vetted-fp8 allowlist rotation, retry
+  ladder; `sweeps.py`/`long_horizon.py` — offline dial sweeps + long-horizon
+  probes over recordings
+- `datasets/` — loaders (`swe`, `locomo`, `pi_session`, `longmemeval`);
+  `scripts/` — corpus builders (`build_devset`, `mega_sessions`,
+  `thinking_arms`, `trace_qa`), run tooling (`preflight`, `run_suite`,
+  `run_sharded`, `smoke_provider`, `snapshot_views`), theory tooling
+  (`dial_sweeps`, `seal_render_probe`, `extraction_bench`)
+- `analysis/` — independent recomputation of every findings number from
+  raw run rows; imports NOTHING from src (see its README)
+- `docs/` — `findings.md` (the evidence report), `lit-review.md` (per-arm
+  sources + full run history), `resident-memory-theory.md`,
+  `dataset-plan.md`, `budgets.md`
 - `data/`, `results/` — corpora and run outputs (gitignored; see the
   tracked `data/README.md` and `results/README.md` manifests)
 
@@ -34,17 +45,21 @@ question: does LCM-style hierarchical compaction beat the deployed default
 
 ```bash
 uv run pytest -q                 # tests (must be green to commit)
-uv run ruff check src tests scripts
+uv run ruff check src tests scripts analysis
 uv run python scripts/preflight.py --leg swe     # BEFORE any live leg
-uv run python -m context_eval.run_eval --path data/swe_smoke.jsonl \
-  --strategies lcm --budgets 16000 --samples 3 --out results/x.jsonl
+                                  # legs: swe, locomo, pi, thinking, mega
+uv run python -m context_eval.run_eval --path data/longmemeval_dev100.jsonl \
+  --strategies flat-compact,lcm,sawtooth-ledger5 --budgets 64000 \
+  --samples 100 --out results/x.jsonl   # --shard i/n for parallel workers
 uv run python -m context_eval.report results/x.jsonl --out results/report.md
 ./scripts/run_suite.sh [--skip-<leg>]            # 3-worker full suite
 ```
 
 Model: `deepseek/deepseek-v4.1-flash` via OpenRouter (`OPENROUTER_API_KEY`
 in `.env`; `env.load_env()` reads it). Live runs are paid and sequential
-per worker; never exceed 3 concurrent workers.
+per worker; never exceed 3 concurrent workers. LongMemEval legs answer
+with the official LLM check; budget via `scripts/preflight.py` first —
+corpus rows are 0.5–5 MB, so samples not questions dominate cost.
 
 ## Best practices
 
