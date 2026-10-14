@@ -2,7 +2,7 @@
 
 Primary datasource: real coding-agent trajectories (issue -> tool calls ->
 observations -> patch). Replayed open-loop as a realistic haystack for
-context-management evaluation; see docs/candidates.md and the dataset card
+context-management evaluation; see docs/lit-review.md and the dataset card
 (CC BY 4.0, arXiv:2606.16038).
 
 Fetches a stratified sample via the HF datasets-server rows API (no 42GB

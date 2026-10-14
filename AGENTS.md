@@ -25,8 +25,10 @@ question: does LCM-style hierarchical compaction beat the deployed default
 - `datasets/` — loaders (`swe`, `locomo`, `pi_session`); `scripts/` —
   `preflight.py`, `run_suite.sh`, `thinking_arms.py`
 - `docs/` — `budgets.md` (tier framing), `lit-review.md` (per-paper
-  summaries + regime/model-behavior findings), `candidates.md`
-- `data/`, `results/` — corpora and run outputs (gitignored)
+  summaries + regime/model-behavior findings), `findings.md` (the
+  evidence report)
+- `data/`, `results/` — corpora and run outputs (gitignored; see the
+  tracked `data/README.md` and `results/README.md` manifests)
 
 ## Commands
 

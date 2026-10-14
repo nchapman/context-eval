@@ -1,4 +1,4 @@
-"""Strategy implementations (candidates from docs/candidates.md)."""
+"""Strategy implementations (design axes and provenance in docs/lit-review.md)."""
 
 from context_eval.strategies.arc import ARCCitations
 from context_eval.strategies.base import Engine, EngineTool, Strategy, StrategyStats
