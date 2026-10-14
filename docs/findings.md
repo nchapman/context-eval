@@ -45,7 +45,7 @@ splits and fresh numbers only.
    tokens (verified in every file above). What the model can *name*, the
    archive + search returns. This is why architecture comparisons on
    ordinary QA keep tying.
-2. **What separates memory designs is uncued inventory, supersession,
+2. **What separates context designs is uncued inventory, supersession,
    and aggregation — and the differences are large exactly there**
    (0.0 vs 0.9 continuity; +26 pts supersession) while ordinary QA
    differences stay ≤6 pts.

@@ -3,13 +3,16 @@
 **Does hierarchical compaction beat the `/compact` default — and what does
 it actually take for an agent to remember what it was working on?**
 
-**TL;DR — compaction is largely solved; memory is not.**
+**TL;DR — popular compaction strategies all do well at recall you can
+name, but continuously struggle with recall you can't.**
 
-7,062 replay runs, one model, one cost counter (~$220 total): what the
-model can *name*, search returns — needles ≈1.0 for every archive arm
-from 8K budgets to 5.5M tokens, and ordinary QA gaps stay ≤6 pts. The
-losses live where nobody measures — uncued inventory, supersession,
-aggregation — and only one structure holds them.
+"Find the auth token from Tuesday" is solved everywhere we looked:
+archive + search returns needles ≈1.0 for every arm from 8K budgets
+to 5.5M tokens, and ordinary QA gaps stay ≤6 pts. The unnamed
+questions — *what have we worked on* (inventory), *which value is
+current* (supersession), *how many* (aggregation) — are where flat,
+LCM, and every prose design collapse, and where the one structure
+that holds them pays.
 
 - **Keep the deployed default.** The research hierarchy (LCM) never
   beat flat `/compact` by more than noise on any fresh comparison
@@ -25,11 +28,10 @@ aggregation — and only one structure holds them.
   returned empty on 42–61% of folds and inverted an arm ranking;
   calibrated → 0 empties in 60/60.
 
-We ran every context-management family through one clean-room replay
-harness — one model, one cost counter, question-matched arms — across SWE
-traces, LoCoMo dialogs, LongMemEval S/M sessions, real multi-day agent
-sessions, and ~5.5M-token mega-sessions at fixed budgets from 8K to 256K.
-Full evidence and error bars: [`docs/findings.md`](docs/findings.md).
+7,062 replay runs, one model, one cost counter (~$220 total); 18 arms
+across SWE traces, LoCoMo, LongMemEval S/M, real 1–2M-token agent
+sessions, and 5.5M-token mega-sessions at 8K–256K budgets. Full
+evidence and error bars: [`docs/findings.md`](docs/findings.md).
 
 ## 1. The six answers
 
@@ -59,7 +61,7 @@ Full evidence and error bars: [`docs/findings.md`](docs/findings.md).
 
 ## 2. The one table: how each design fails
 
-Each family loses memory in a characteristic, greppable way — every fix in
+Each design fails in a characteristic, greppable way — every fix in
 the project's history lands in one of these rows:
 
 | loss mode | who fails | signature | measured |
@@ -258,14 +260,14 @@ the harness or an independent recheck, which is why we trust the rest:
 
 ## 8. What this doesn't show
 
-One model class builds every arm's memory and answers every question.
-Costs are replay-based (production pays the view every turn; ratios
-transfer, absolutes don't). n is stated per claim in findings.md;
-anything inside ±6 pts or below n≈50 is directional. The corpus that
-would discriminate structure's value — months of sparse contact with real
-drift — does not exist; LongMemEval's ~10-day median span flatters
-recency-biased designs. And aggregation fails for everyone (§5.3), so no
-arm "wins" conversational memory outright.
+One model class builds every arm's working context and answers every
+question. Costs are replay-based (production pays the view every turn;
+ratios transfer, absolutes don't). n is stated per claim in
+findings.md; anything inside ±6 pts or below n≈50 is directional. The
+corpus that would discriminate structure's value — months of sparse
+contact with real drift — does not exist; LongMemEval's ~10-day median
+span flatters recency-biased designs. And aggregation fails for
+everyone (§5.3), so no arm "wins" conversational retention outright.
 
 ## 9. Reproducing
 
