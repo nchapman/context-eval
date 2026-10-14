@@ -21,6 +21,12 @@ A key finding of the theory work (Context Compaction Theory, arXiv:2608.01326): 
 
 ## 2. Strategy families
 
+The families below sit in a five-axis design space (from the retired
+candidates doc, kept as the registry's organizing vocabulary):
+temporal vs semantic grouping · losslessness (verbatim archive or not)
+· LLM-driven vs deterministic transformations · engine- vs
+model-managed state · verbatim vs abstracted working view.
+
 ### Family A — Truncation baselines (anchors)
 
 - **Full context**: send everything. The oracle for effectiveness — but degrades with length ("lost in the middle"), costs linearly more per turn, and eventually overflows. LongMemEval (ICLR 2025) reports ~30% accuracy drop for long-context LLMs on sustained-interaction memory.
@@ -91,7 +97,7 @@ The agent "knows facts" rather than "recalls conversation."
 - **MemGPT / Letta** — Packer et al., arXiv:2310.08560 (Oct 2023). The OS metaphor: main context vs external context (recall + archival storage), FIFO eviction with memory-pressure warnings at 70% (letting the model proactively page things out), recursive summary of evictions at 50%. Successor: Letta (github.com/letta-ai/letta). DMR benchmark origin.
 - **Zep / Graphiti** — Rasmussen et al., arXiv:2501.13956 (Jan 2025). Temporal knowledge graph (bi-temporal: event time vs ingestion time) built from conversation. Beats MemGPT on DMR (94.8% vs 93.4%), strong on LongMemEval. Impl: github.com/getzep/graphiti. Complex — not clean-room friendly; candidate for library-baseline only.
 - **Generative Agents** — Park et al., arXiv:2304.03442 (2023). Memory stream with retrieval scored by recency × importance × relevance, plus reflection (synthesizing higher-level memories). The root of most of this literature.
-- **Filesystem-as-memory** — Letta blog, "Is a Filesystem All You Need?": storing conversation history in a file (agent reads/greps it) scores **74.0% on LoCoMo**, beating specialized memory libraries. Strong evidence for candidates 4/11 (search over verbatim history, transcript-as-file).
+- **Filesystem-as-memory** — Letta blog, "Is a Filesystem All You Need?": storing conversation history in a file (agent reads/greps it) scores **74.0% on LoCoMo**, beating specialized memory libraries. Strong evidence for retrieval-style arms (search over verbatim history, transcript-as-file).
 - Also noted, likely out of scope: A-Mem (Zettelkasten-style agentic notes, arXiv:2502.12110), MemoryBank (Ebbinghaus decay, Zhong et al.), H-MEM (hierarchical semantic abstraction with positional indexes, EACL 2026), Memory-R1 (RL-trained memory ops).
 
 ### Family E — Model-managed recursion (RLM)

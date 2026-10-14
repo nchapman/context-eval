@@ -218,7 +218,7 @@ def arm_acc(paths, strat):
             if r.get('strategy') != strat:
                 continue
             for a in r.get('answers') or []:
-                if a.get('score_method') == 'error':
+                if not isinstance(a, dict) or a.get('score_method') == 'error':
                     continue
                 n += 1
                 s += a.get('score') or 0

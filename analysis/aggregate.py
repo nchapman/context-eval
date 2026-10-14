@@ -30,17 +30,18 @@ for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
     run_errs = sum(1 for r in runs if r.get('error'))
     overflow = sum(1 for r in runs if r.get('overflowed_at') is not None)
     empty_sum = sum(r.get('empty_summaries') or 0 for r in runs)
-    parse_err = sum(1 for r in runs if r.get('_parse_error'))
-    strat = runs[0].get('strategy') if runs and not runs[0].get('_parse_error') else '?'
-    budget = runs[0].get('budget_tokens') if runs else '?'
     # strategies may be mixed within a file; group by (strategy,budget)
     by_sb = defaultdict(list)
     for r in runs:
+        if r.get('_parse_error'):
+            continue  # already tallied in parse_err; no (None, None) group row
         by_sb[(r.get('strategy'), r.get('budget_tokens'))].append(r)
     for (s, b), rs in sorted(by_sb.items(), key=lambda x: str(x[0])):
         cells = defaultdict(lambda: [0, 0.0, 0, 0])  # kind -> [n, sum, blank, err]
         for r in rs:
             for a in (r.get('answers') or []):
+                if not isinstance(a, dict):
+                    continue
                 k = a.get('kind', '?')
                 c = a.get('category') or ''
                 key = f"{k}/{c}" if c else k
@@ -66,7 +67,7 @@ for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
             'run_errs': sum(1 for r in rs if r.get('error')),
             'overflow': sum(1 for r in rs if r.get('overflowed_at') is not None),
             'empty_summaries': sum(r.get('empty_summaries') or 0 for r in rs),
-            'parse_err': parse_err,
+            'parse_err': sum(1 for r in rs if r.get('_parse_error')),
             'q': tot[0], 'mean': round(tot[1] / tot[0], 3) if tot[0] else None,
             'blank_pred': tot[2], 'q_err': tot[3],
             'cells': {
