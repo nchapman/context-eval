@@ -533,3 +533,39 @@ rolling window is accidentally well-matched. Third independent "boring
 thing ties/wins" data point after Letta's filesystem result and EMem.
 Open: structure's value needs the corpus nobody has -- sparse contact
 over months, relationship drift, nothing recent.
+
+### flat-v2 prompt round: conversation-form folding, cue-card index (2025-10-14)
+
+Cheap-provider iteration setup: baidu/fp8 pinned ($0.10/M in, $0.41/M
+out -- cheapest vetted), BUT its shared-pool TPM limit cannot sustain
+even a SEQUENTIAL 16K fold loop (v2 smoke died at fold 31, 7x429).
+Fix: two-tag allowlist `baidu/fp8,inference-net/fp8` -- the client
+rotates to the next pinned provider on 429; the prompt-6 sweep then
+absorbed 5 transient 429s with zero run deaths (traffic settled ~75%
+inference-net). Cost per 16K fold run, MEASURED: $0.26 (baidu) /
+$0.31-0.35 (inference-net, flat conv-form) / $0.42 (v2 -- bigger
+artifact re-read per fold). Zero cached tokens reported on folds:
+conversation-form folding changed nothing for KV reuse on these
+providers; the shape win (if any) is roled turns + deployed /compact
+form, not cache.
+
+Conversation-form fold (e192cc2): fold call = [prior summary message,
+new messages as roled turns, compact instruction LAST] -- same message
+shape as the assembled view; folds still send summary+delta only.
+
+Extremes bracket (m30_v2dev, 30 unseen samples): flat 0.67 @16K
+(~126 folds/run) vs 0.80 @128K (~12) -- an 8x budget squeeze costs
+only 0.13. Multi-session 0.50 at BOTH corners and knowledge-update
+0.57@16K vs 0.86@128K: aggregation fails independent of budget
+(artifact shape, not fold decay). $23.17 for the pair (2.6x estimate:
+fold count and cache share both mis-modeled).
+
+Prompt-6 head-to-head (6 hardest samples: 3 multi-session + 3
+knowledge-update; baseline flat scored 0.17 there): flat conv-form
+0.50 (5.3 tools/answer, $0.35/run), flat-compact-v2 0.50 (2.7 tools --
+index resolves directly instead of searching, $0.42/run). Complementary
+hit sets (union 5/6, meaningless at n=6). 0.17->0.50 is confounded
+(call shape AND provider mix changed vs sweep0); separating them costs
+one flat old-form arm on baidu (~$2). SHelved at budget floor (~$1
+left) before deconfounding. Artifacts in the sweep1 recordings allow
+free fold-by-fold index-vs-digest inspection.

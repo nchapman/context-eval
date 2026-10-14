@@ -70,9 +70,13 @@ Multi-session (aggregation/count) questions: **0.50 at both extremes**
 — 16K and 128K alike, with only 12 folds at 128K. Half the "how many /
 which most" questions fail regardless of budget. That is not compaction
 decay; it is the digest's *shape*. It is the one regime where "flat is
-fine" has an asterisk, and the target of the unvalidated cue-card v2
-(one-line topic index designed to drive precise `history_search`;
-committed, ~$8 to validate on a 10-sample slice, shelved).
+fine" has an asterisk. The cue-card v2 (one-line topic index driving
+precise `history_search`) was built and piloted on the 6 hardest
+samples: 0.50 vs baseline 0.17 there, tied with conversation-form
+folding of the stock prompt (0.50) — an unresolved confound between
+call shape and prompt, stopped at the budget floor. The asterisk
+stands; the cheapest open question is whether conversation-form folding
+alone recovers it.
 
 ## What this says to practitioners
 
@@ -90,8 +94,8 @@ committed, ~$8 to validate on a 10-sample slice, shelved).
 
 ## Honest ledger
 
-~$402 recorded API spend across the project's life, ~$166 on the final
-day. The final day's extremes run cost $23.17 against a $6–9 estimate
+~$408 recorded API spend across the project's life (~$166 on its most
+expensive day; the last round ran ~$5 more on cheap fp8 providers). The final day's extremes run cost $23.17 against a $6–9 estimate
 (2.6×: fold count under-modeled, cache share over-modeled) and chiefly
 re-confirmed the headline — the write-up's sensitivity section exists
 so that confirmation is at least *usable*. Sharp cost discipline from

@@ -90,6 +90,16 @@ full-context on tool-free corpora) are findings, not bugs.
 (random line boundary — never end-append: ARC's tail preview read every
 needle for free once). Same seed ⇒ same needles across all arms.
 
+**Provider economics (measured, 2025-10-14).** Cheap iteration pins
+baidu/fp8 ($0.10/M in) but its shared-pool TPM dies even under a
+SEQUENTIAL 16K fold loop — allowlists need >=2 vetted tags so the
+client's 429 rotation has somewhere to go (`baidu/fp8,inference-net/fp8`
+absorbed 5 throttles with zero run deaths). Cost estimates come from
+measured $/run of the SAME run shape (a modeled estimate missed 2.6x;
+measured projections landed within 4%). Measured @16K fold run:
+$0.26 baidu / $0.31-0.35 inference-net / $0.42 with a bigger artifact.
+Zero cached tokens on fold streams — do not budget for KV reuse.
+
 **Failure signatures.** 429 exhaustion looks like blank predictions and
 zero-acc cells, not error rows — check `error` fields AND predictions
 before diagnosing strategy behavior. Overflowed runs answer nothing and
