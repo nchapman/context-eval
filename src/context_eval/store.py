@@ -1,8 +1,10 @@
 """Append-only, ID-addressable transcript store.
 
-Shared infrastructure (not a strategy): candidates 2, 3, 4, 5, 6, and 11 all
-need a verbatim archive with stable IDs; the "addressable store" is what makes
-pointers, citations, and search possible.
+Shared infrastructure (not a strategy): every arm that keeps a verbatim
+archive with stable IDs (retrieval, the sawtooth ledger, ARC, editing,
+representation, RLM-style recursion — see docs/lit-review.md §2) builds
+on this; the "addressable store" is what makes pointers, citations, and
+search possible.
 """
 
 from __future__ import annotations

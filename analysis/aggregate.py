@@ -25,11 +25,12 @@ for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
             except json.JSONDecodeError:
                 row = None
             runs.append(row if isinstance(row, dict) else {'_parse_error': True})
-    agg = defaultdict(lambda: {'n': 0, 'sum': 0.0, 'blank': 0, 'err': 0})
-    n_runs = len(runs)
-    run_errs = sum(1 for r in runs if r.get('error'))
-    overflow = sum(1 for r in runs if r.get('overflowed_at') is not None)
-    empty_sum = sum(r.get('empty_summaries') or 0 for r in runs)
+    n_parse_err = sum(1 for r in runs if r.get('_parse_error'))
+    if n_parse_err:
+        # parse-error rows cannot be attributed to a strategy/budget group;
+        # surface the loss loudly so a truncated shard never silently shrinks
+        # a denominator
+        print(f'  [warn] {path}: {n_parse_err} unparseable row(s) excluded from all groups')
     # strategies may be mixed within a file; group by (strategy,budget)
     by_sb = defaultdict(list)
     for r in runs:
@@ -67,7 +68,6 @@ for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
             'run_errs': sum(1 for r in rs if r.get('error')),
             'overflow': sum(1 for r in rs if r.get('overflowed_at') is not None),
             'empty_summaries': sum(r.get('empty_summaries') or 0 for r in rs),
-            'parse_err': sum(1 for r in rs if r.get('_parse_error')),
             'q': tot[0], 'mean': round(tot[1] / tot[0], 3) if tot[0] else None,
             'blank_pred': tot[2], 'q_err': tot[3],
             'cells': {

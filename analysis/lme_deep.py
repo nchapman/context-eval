@@ -57,8 +57,10 @@ def dev100_seen_ids():
             for i, line in enumerate(f):
                 if i >= 25:
                     break
-                seen.add(json.loads(line)['sample_id'])
-    except (OSError, json.JSONDecodeError, KeyError) as exc:
+                row = json.loads(line)
+                if isinstance(row, dict) and 'sample_id' in row:
+                    seen.add(row['sample_id'])
+    except (OSError, ValueError, TypeError, KeyError) as exc:
         print(f'  [warn] seen/fresh split unavailable: {exc}')
         return None
     return seen or None
@@ -177,7 +179,8 @@ for p in FRESH_S:
                 continue
             meta = a.get('meta') if isinstance(a.get('meta'), dict) else {}
             qid = (r['sample_id'], meta.get('question_id') or str(a.get('question') or '')[:60])
-            by.setdefault(qid, {})[r.get('strategy')] = a.get('score') or 0
+            sc = a.get('score') if isinstance(a.get('score'), (int, float)) else 0.0
+            by.setdefault(qid, {})[r.get('strategy')] = sc
     run01 += sum(1 for A in by.values() if disc(A) == 1)
     run10 += sum(1 for A in by.values() if disc(A) == -1)
     for qid, A in by.items():
@@ -221,7 +224,7 @@ def arm_acc(paths, strat):
                 if not isinstance(a, dict) or a.get('score_method') == 'error':
                     continue
                 n += 1
-                s += a.get('score') or 0
+                s += a.get('score') if isinstance(a.get('score'), (int, float)) else 0.0
     return s / n if n else float('nan')
 
 
