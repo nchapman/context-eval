@@ -43,9 +43,10 @@ only; all token/cost accounting through one counter. Three regimes:
    complexity at any regime tested.
 4. **The typed append-only ledger is the one structure that pays** —
    modestly on external QA (best-or-tied in 5/5 fresh S comparisons —
-   4 wins, 1 tie; pooled paired discordants 25–16 vs flat, p≈0.16 —
-   consistent direction, not significant), decisively on inventory
-   probes (0.77–0.91 vs 0.00–0.02 for all rewriters at 1–2M tokens),
+   4 wins, 1 tie; pooled paired discordants 22–12 vs flat, p≈0.09,
+   fresh-only and strictly paired — consistent direction, still short
+   of significance), decisively on inventory probes
+   (0.77–0.91 vs 0.00–0.02 for all rewriters at 1–2M tokens),
    and it is the *only* design that has ever enumerated at 5.5M tokens
    (continuity 0.70–0.80, §6) — at cost parity with flat (§5).
 5. **Flat /compact is genuinely robust on volume, but that is partly
@@ -176,7 +177,10 @@ above from raw rows.
 
 - Ledger5 leads flat in 4 of 5 fresh sweep-level comparisons and ties
   the fifth (0.88 vs 0.88 on s25 set A); pooled paired discordants
-  25–16 (McNemar χ²≈2.0, p≈0.16). **Consistent direction, individually
+  22–12 (McNemar χ²≈2.9, p≈0.09). The pool is fresh-only (the 25
+  tuning samples excluded) and strictly paired (both arms answered);
+  folding in the tuning samples or unpaired questions dilutes the edge
+  (χ²≈2.0, p≈0.16). **Consistent direction, individually
   underpowered — call it a probable ~3–6 pt edge, not a tie, not a
   win.** Its wins concentrate in multi-session and temporal; its
   losses are extraction misses and one superseded-value slip

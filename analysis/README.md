@@ -15,3 +15,13 @@ aggregation cannot silently back the write-up.
   breakdowns for the R9/R10/R11/mega files.
 
 Run: `python3 analysis/<script>.py` (stdlib only).
+
+**Testing choice (deliberate):** these scripts are not collected by
+pytest. They are session-audit tools whose output is diffed by hand
+against `docs/findings.md`; the green gate (`ruff check`) only lint-checks
+them. Their input trees (`results/`, `data/`) are gitignored, so the
+harness test-suite cannot exercise them without fixtures that would
+duplicate the scripts' logic rather than check it. Guardrails that DO
+apply: malformed JSONL rows are skipped (`_parse_error`), unreadable or
+missing files warn and continue, and every number they print must
+reproduce a findings figure or the doc is wrong.

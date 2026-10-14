@@ -28,7 +28,12 @@ ARMS = ['flat-compact', 'sawtooth-ledger5', 'lcm']
 
 def load(path):
     runs = []
-    with open(path) as f:
+    try:
+        f = open(path)
+    except OSError as exc:
+        print(f'  [warn] skipping unreadable {path}: {exc}')
+        return runs
+    with f:
         for line in f:
             line = line.strip()
             if not line:
@@ -130,9 +135,10 @@ for gname, paths in groups.items():
             print('     ' + '  '.join(f'{c}:{v[1] / v[0]:.2f}(n={v[0]})' for c, v in cats))
 
 # Pooled pairwise discordants, flat vs ledger5, over every fresh-S
-# comparison (dev100 sweeps + both s25 matched sets). Pairwise (flat ∩
-# ledger5) intersection, NOT the 3-arm common set -- this is the 2-arm
-# statistic behind findings §5's McNemar, reproduced from raw rows.
+# comparison. Two rules make this a valid McNemar pool (findings §5):
+# FRESH-ONLY (dev100 sweeps filtered to the 75 non-tuning samples; the
+# s25 matched sets have zero dev25 overlap, checked) and STRICTLY PAIRED
+# (a question counts only when BOTH arms produced a scored answer).
 FRESH_S = [f'results/longmemeval/dev100/sweep{i}.jsonl' for i in (1, 2, 3)] + [
     f'{M25}/s25_fresh_matched.jsonl',
     f'{M25}/s25_fresh2_matched.jsonl',
@@ -140,16 +146,22 @@ FRESH_S = [f'results/longmemeval/dev100/sweep{i}.jsonl' for i in (1, 2, 3)] + [
 
 
 def disc(scores):
-    """+1 if only ledger5 is right, -1 if only flat is right, else 0."""
-    f = scores.get('flat-compact', 0) >= 0.5
-    led = scores.get('sawtooth-ledger5', 0) >= 0.5
+    """+1 if only ledger5 is right, -1 if only flat is right, else 0.
+    Returns None when either arm lacks a scored answer (unpairable)."""
+    if 'flat-compact' not in scores or 'sawtooth-ledger5' not in scores:
+        return None
+    f = scores['flat-compact'] >= 0.5
+    led = scores['sawtooth-ledger5'] >= 0.5
     return 1 if led and not f else -1 if f and not led else 0
 
 
+seen_ids = dev100_seen_ids()
 tot01 = tot10 = 0
 for p in FRESH_S:
     by = {}
     for r in load(p):
+        if seen_ids and r['sample_id'] in seen_ids:
+            continue  # tuning samples are not eval numbers (findings §5)
         for a in r.get('answers') or []:
             if a.get('score_method') == 'error':
                 continue
@@ -173,7 +185,7 @@ def arm_acc(paths, strat):
     n = s = 0
     for p in paths:
         for r in load(p):
-            if r['strategy'] != strat:
+            if r.get('strategy') != strat:
                 continue
             for a in r.get('answers') or []:
                 if a.get('score_method') == 'error':
