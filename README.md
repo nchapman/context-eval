@@ -28,10 +28,10 @@ error bars: [`docs/findings.md`](docs/findings.md).
    less than noise, and loses topic names like every other prose rewriter
    (continuity 0.02 on real 1–2M-token sessions).
 4. **The typed append-only ledger is the one structure that pays** — best or
-   tied in 5/5 fresh QA comparisons (paired discordants 22–12 vs flat,
-   p≈0.09 — direction, still short of significance), decisive on inventory
-   probes (0.77–0.91 vs 0.00–0.02), the only design to enumerate at 5.5M
-   tokens — at cost parity with flat.
+   tied in 5/5 fresh QA comparisons (question-level paired discordants 16–8
+   vs flat, χ²≈2.7, p≈0.10 — direction, still short of significance),
+   decisive on inventory probes (0.77–0.91 vs 0.00–0.02), the only design
+   to enumerate at 5.5M tokens — at cost parity with flat.
 5. **Flat `/compact` is extraordinarily robust on volume — partly corpus
    luck.** An 8× budget squeeze (12→126 folds/run) costs only 0.13
    (0.80→0.67); but its failures are *shape* failures: multi-session
@@ -153,8 +153,9 @@ not exist yet (§8).
 | M base → fixed (matched sets) | 0.59→**0.64** | 0.65→0.63 | 0.68→0.66 | 48–50/arm |
 
 Ledger5 leads flat in 4 of 5 fresh comparisons and ties the fifth
-(paired discordants 22–12, χ²≈2.9, p≈0.09, fresh-only and strictly
-paired — a probable ~3–6 pt edge, not a tie,
+(question-level paired discordants 16–8, χ²≈2.7, p≈0.10 — each question
+counted once across sweeps, fresh-only, strictly paired — a probable
+~3–6 pt edge, not a tie,
 not a win). LCM is a wash everywhere. The flat fix is real (+0.05 pooled,
 both matched batches). S→M decay is universal: −0.12 to −0.32. **Costs
 are parity** (M overhead $6.2–6.7 per 25 runs across all three arms) —

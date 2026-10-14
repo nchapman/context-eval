@@ -73,9 +73,10 @@ def cells(runs, strat):
         if r.get('strategy') != strat or 'sample_id' not in r:
             continue
         for a in r.get('answers') or []:
-            if a.get('score_method') == 'error':
+            if not isinstance(a, dict) or a.get('score_method') == 'error':
                 continue
-            qid = (r['sample_id'], (a.get('meta') or {}).get('question_id') or a['question'][:60])
+            meta = a.get('meta') if isinstance(a.get('meta'), dict) else {}
+            qid = (r['sample_id'], meta.get('question_id') or str(a.get('question') or '')[:60])
             score = a.get('score') if isinstance(a.get('score'), (int, float)) else 0.0
             out[qid] = (score, a.get('category'), a.get('prediction') or '')
     return out
@@ -136,10 +137,15 @@ for gname, paths in groups.items():
             print('     ' + '  '.join(f'{c}:{v[1] / v[0]:.2f}(n={v[0]})' for c, v in cats))
 
 # Pooled pairwise discordants, flat vs ledger5, over every fresh-S
-# comparison. Two rules make this a valid McNemar pool (findings §5):
+# comparison. Three rules make this a valid McNemar pool (findings §5):
 # FRESH-ONLY (dev100 sweeps filtered to the 75 non-tuning samples; the
-# s25 matched sets have zero dev25 overlap, checked) and STRICTLY PAIRED
-# (a question counts only when BOTH arms produced a scored answer).
+# s25 matched sets have zero dev25 overlap, checked), STRICTLY PAIRED
+# (a question counts only when BOTH arms produced a scored answer), and
+# QUESTION-LEVEL (each sample+question is ONE observation: dev100 runs
+# three sweeps over the same samples, so per-sweep pairs are repeated
+# measures -- the per-question net direction is used, ties count as
+# concordant). A run-level reference pool (sweeps counted separately)
+# is printed for continuity with earlier drafts.
 FRESH_S = [f'results/longmemeval/dev100/sweep{i}.jsonl' for i in (1, 2, 3)] + [
     f'{M25}/s25_fresh_matched.jsonl',
     f'{M25}/s25_fresh2_matched.jsonl',
@@ -157,7 +163,8 @@ def disc(scores):
 
 
 seen_ids = dev100_seen_ids()
-tot01 = tot10 = 0
+per_q = {}
+run01 = run10 = 0
 for p in FRESH_S:
     by = {}
     for r in load(p):
@@ -166,14 +173,25 @@ for p in FRESH_S:
         if seen_ids and r['sample_id'] in seen_ids:
             continue  # tuning samples are not eval numbers (findings §5)
         for a in r.get('answers') or []:
-            if a.get('score_method') == 'error':
+            if not isinstance(a, dict) or a.get('score_method') == 'error':
                 continue
-            qid = (r['sample_id'], (a.get('meta') or {}).get('question_id') or a['question'][:60])
+            meta = a.get('meta') if isinstance(a.get('meta'), dict) else {}
+            qid = (r['sample_id'], meta.get('question_id') or str(a.get('question') or '')[:60])
             by.setdefault(qid, {})[r.get('strategy')] = a.get('score') or 0
-    tot01 += sum(1 for A in by.values() if disc(A) == 1)
-    tot10 += sum(1 for A in by.values() if disc(A) == -1)
-n = tot01 + tot10
-chi2 = (tot01 - tot10) ** 2 / n if n else float('nan')
+    run01 += sum(1 for A in by.values() if disc(A) == 1)
+    run10 += sum(1 for A in by.values() if disc(A) == -1)
+    for qid, A in by.items():
+        if 'flat-compact' in A and 'sawtooth-ledger5' in A:
+            per_q.setdefault(qid, []).append(disc(A))
+
+
+def mcnemar(b01, b10):
+    n = b01 + b10
+    return (b01 - b10) ** 2 / n if n else float('nan')
+
+
+q01 = sum(1 for ds in per_q.values() if sum(ds) > 0)
+q10 = sum(1 for ds in per_q.values() if sum(ds) < 0)
 print('\n########## fresh-S pooled pairwise discordants (flat vs ledger5)')
 if seen_ids is None:
     # Without the corpus the tuning samples cannot be excluded; printing
@@ -181,7 +199,10 @@ if seen_ids is None:
     print('  [warn] dev100 corpus unavailable — fresh-only filter cannot apply;')
     print('         pooled stat suppressed (restore data/longmemeval_dev100.jsonl).')
 else:
-    print(f'  ledger-wins={tot01} flat-wins={tot10} McNemar chi2={chi2:.2f}')
+    q_line = '  question-level (one per sample+question, net direction):'
+    print(f'{q_line} ledger={q01} flat={q10} chi2={mcnemar(q01, q10):.2f}')
+    r_line = '  run-level reference (per-sweep, repeated measures):'
+    print(f'{r_line} ledger={run01} flat={run10} chi2={mcnemar(run01, run10):.2f}')
 
 # M matched base-vs-fixed pooled split (findings §5 table, bottom row):
 # base = sweeps 2+3, fixed = their post-fix re-runs 4+5. All answered

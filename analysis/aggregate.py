@@ -41,20 +41,21 @@ for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
         cells = defaultdict(lambda: [0, 0.0, 0, 0])  # kind -> [n, sum, blank, err]
         for r in rs:
             for a in (r.get('answers') or []):
-                if a.get('score_method') == 'error':
-                    # harness convention (report.py): errored answers leave the denominator
-                    continue
                 k = a.get('kind', '?')
                 c = a.get('category') or ''
-                sc = a.get('score')
                 key = f"{k}/{c}" if c else k
+                if a.get('score_method') == 'error' or a.get('error'):
+                    # harness convention (report.py): errored answers leave the
+                    # mean denominator (cell[0]) but stay visible in the error
+                    # diagnostic (cell[3]) -- counted here, BEFORE the skip
+                    cells[key][3] += 1
+                    continue
+                sc = a.get('score')
                 cell = cells[key]
                 cell[0] += 1
                 cell[1] += (sc if isinstance(sc, (int, float)) else 0.0)
                 if blank(a.get('prediction')):
                     cell[2] += 1
-                if a.get('error'):
-                    cell[3] += 1
         tot = [0, 0.0, 0, 0]
         for v in cells.values():
             for i in range(4):
@@ -68,7 +69,10 @@ for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
             'parse_err': parse_err,
             'q': tot[0], 'mean': round(tot[1] / tot[0], 3) if tot[0] else None,
             'blank_pred': tot[2], 'q_err': tot[3],
-            'cells': {k: [v[0], round(v[1]/v[0], 3), v[2], v[3]] for k, v in sorted(cells.items())},
+            'cells': {
+                k: [v[0], round(v[1] / v[0], 3) if v[0] else None, v[2], v[3]]
+                for k, v in sorted(cells.items())
+            },
         })
 
 with open('analysis/all_rows.json', 'w') as out:
