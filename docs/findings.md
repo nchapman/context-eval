@@ -23,6 +23,21 @@ only; all token/cost accounting through one counter. Three regimes:
 | mega sessions (interleaved) | ~5.5M tokens, ~115–153 teeth | same probes | `results/mega`, `results/collection` |
 | LongMemEval S (~120K tok) / M (~1.2M tok) | external conversational QA, official judge | 5 categories | `results/longmemeval/{dev100,m25,v2}` |
 
+## The arm we built
+
+The sawtooth arms are this project's own design, built to isolate one
+variable: the compaction schedule (trigger, 12K-token verbatim head,
+archive + search) is pinned bit-identical across arms, and only the
+resident back varies — none / prose rewrite / append-only prose
+segments / typed ledger (`src/context_eval/strategies/sawtooth.py`).
+`sawtooth-ledger5` is the theory-driven endpoint
+(`docs/resident-memory-theory.md`): typed topic-keyed records appended
+once, mechanical latest-wins supersession in code, an activation-law
+ladder and render-time demotion for the resident block. All three
+headline arms (flat, lcm, ledger5) were tuned on the dev25 split;
+dev100's first 25 samples are exactly those, so §5 reports seen/fresh
+splits and fresh numbers only.
+
 ## Headline answers
 
 1. **Cued single-fact recall is solved at every depth we could test.**

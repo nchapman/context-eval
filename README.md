@@ -82,6 +82,22 @@ everywhere (`deepseek/deepseek-v4.1-flash`); LongMemEval scored with its
 official check; matched-set and seen/fresh discipline throughout. Details:
 findings §8.
 
+One arm family is ours. The `sawtooth-*` arms pin the compaction
+schedule bit-identical — same trigger, same 12K-token verbatim head,
+same archive + search — and vary only what each cut leaves resident
+(no back / prose rewrite / append-only prose segments / typed ledger),
+so arm differences isolate that one variable.
+`sawtooth-ledger5` is the theory-driven endpoint of that line
+([docs/resident-memory-theory.md](docs/resident-memory-theory.md)): a
+typed, append-only ledger of topic-keyed records (status changes,
+facts, ids and numbers verbatim) with latest-wins supersession applied
+in code, an activation-law ladder that budgets the resident block by
+workstream, and render-time demotion of quiet topics. All three
+headline arms — flat, lcm, ledger5 — were tuned on the 25-sample dev25
+split; dev100's first 25 samples are exactly those, which is why every
+LongMemEval number below is seen/fresh split and why §5.5's fresh
+numbers, not the 0.92–1.00 seen scores, are the real ones.
+
 ## 5. Findings
 
 ### 5.1 Cued recall: solved, everywhere
