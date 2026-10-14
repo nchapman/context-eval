@@ -3,16 +3,33 @@
 **Does hierarchical compaction beat the `/compact` default — and what does
 it actually take for an agent to remember what it was working on?**
 
+**TL;DR — compaction is largely solved; memory is not.**
+
+7,062 replay runs, one model, one cost counter (~$220 total): what the
+model can *name*, search returns — needles ≈1.0 for every archive arm
+from 8K budgets to 5.5M tokens, and ordinary QA gaps stay ≤6 pts. The
+losses live where nobody measures — uncued inventory, supersession,
+aggregation — and only one structure holds them.
+
+- **Keep the deployed default.** The research hierarchy (LCM) never
+  beat flat `/compact` by more than noise on any fresh comparison
+  (0.71 vs 0.74 on fresh LongMemEval-S).
+- **Ship a typed append-only ledger if the agent must know what it's
+  working on** (our arm, §4): inventory 0.77–0.91 vs 0.00–0.02 for
+  prose rewriters at 1–2M tokens, supersession 0.88 vs 0.62 (n≈50) —
+  at cost parity. Its ordinary-QA edge is direction, not significance
+  (p≈0.10).
+- **Counting is unsolved for everyone** (0.43–0.57 multi-session) —
+  the open problem no arm touched.
+- **Calibrate every utility call.** Uncalibrated calls silently
+  returned empty on 42–61% of folds and inverted an arm ranking;
+  calibrated → 0 empties in 60/60.
+
 We ran every context-management family through one clean-room replay
 harness — one model, one cost counter, question-matched arms — across SWE
 traces, LoCoMo dialogs, LongMemEval S/M sessions, real multi-day agent
 sessions, and ~5.5M-token mega-sessions at fixed budgets from 8K to 256K.
-The short version: **cued recall is solved by archive + search at every
-depth we could test; what separates memory designs is uncued inventory,
-supersession, and aggregation — and only one structure, the typed
-append-only ledger, holds those at every scale.** The prose hierarchy
-(LCM) never beat flat `/compact` by more than noise. Full evidence and
-error bars: [`docs/findings.md`](docs/findings.md).
+Full evidence and error bars: [`docs/findings.md`](docs/findings.md).
 
 ## 1. The six answers
 
