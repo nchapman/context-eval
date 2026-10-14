@@ -33,6 +33,13 @@ across SWE traces, LoCoMo, LongMemEval S/M, real 1–2M-token agent
 sessions, and 5.5M-token mega-sessions at 8K–256K budgets. Full
 evidence and error bars: [`docs/findings.md`](docs/findings.md).
 
+One caveat, stated up front: this was an exploratory round — arms
+tuned on a split we later had to fence off, fixes shipped mid-suite,
+and sample sizes that leave the closest comparison (ledger5 vs flat)
+at p≈0.10. The qualitative answers survived independent recomputation
+from raw rows; the quantitative edges need the clean run specified in
+[docs/v2-plan.md](docs/v2-plan.md).
+
 ## 1. The six answers
 
 1. **Cued single-fact recall is solved at every depth tested.** Injected
