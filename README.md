@@ -111,21 +111,38 @@ official check; matched-set and seen/fresh discipline throughout. Details:
 
 ### 4.1 The arm we built: `sawtooth-ledger5`
 
-The `sawtooth-*` arms pin the compaction schedule bit-identical — same
-trigger, same 12K-token verbatim head, same archive + search — and
-vary only what each cut leaves resident (no back / prose rewrite /
-append-only prose segments / typed ledger), so arm differences isolate
-that one variable. `sawtooth-ledger5` is the theory-driven endpoint of
-that line ([docs/resident-memory-theory.md](docs/resident-memory-theory.md)):
-a typed, append-only ledger of topic-keyed records (status changes,
-facts, ids and numbers verbatim) with latest-wins supersession applied
-in code, an activation-law ladder that budgets the resident block by
-workstream, and render-time demotion of quiet topics. All three
-headline arms — flat, lcm, ledger5 — were tuned on the 25-sample dev25
-split; dev100's first 25 samples are exactly those, which is why every
-LongMemEval number below is seen/fresh split and why
-[§5.5](#55-the-honest-fresh-longmemeval-numbers)'s fresh
-numbers, not the 0.92–1.00 seen scores, are the real ones.
+The idea: **the session's durable state is a ledger, not a summary.**
+Every message lands in a verbatim, searchable archive. When the view
+would overflow, the model makes one extraction pass over the segment
+being cut and emits typed observations — `TOPIC | status | fact [§ids]`
+— which are **appended** to the ledger and never rewritten, merged, or
+re-summarized. Everything after that is code, not model: latest-wins
+supersession (only the newest value of a fact renders), topic
+grouping, dedupe, and the view itself — a *rendering* of the ledger in
+which each workstream earns budget by an activation law (weight runs
+from last use, not age; quiet topics demote but stay findable), and a
+search hit re-activates what it finds.
+
+The design hypothesis is the contrast with every prose arm: flat and
+LCM ask the model to *re-maintain* a summary at each compaction — 10 to
+150 re-derivations per session, each one free to drop a topic — while
+the ledger asks the model to *append once* and never asks again;
+supersession is arithmetic instead of prose judgment. That contrast is
+the mechanism behind
+[inventory 0.77–0.91 vs 0.00–0.10](#52-inventory-where-architecture-separates--exactly-when-compaction-begins).
+Its known failure surface is extraction recall: what the extractor
+never records never exists.
+
+Built here; axioms, dials, and falsifiable predictions in
+[docs/resident-memory-theory.md](docs/resident-memory-theory.md). The
+`sawtooth-*` family pins the compaction schedule bit-identical and
+varies only what each cut leaves resident, so arm differences isolate
+that variable. All three headline arms — flat, lcm, ledger5 — were
+tuned on the 25-sample dev25 split; dev100's first 25 samples are
+exactly those, which is why every LongMemEval number below is
+seen/fresh split and why
+[§5.5](#55-the-honest-fresh-longmemeval-numbers)'s fresh numbers, not
+the 0.92–1.00 seen scores, are the real ones.
 
 ## 5. Findings
 
