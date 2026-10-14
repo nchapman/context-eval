@@ -6,7 +6,7 @@ it actually take for an agent to remember what it was working on?**
 **TL;DR — popular compaction strategies all do well at recall you can
 name, but continuously struggle with recall you can't.**
 
-"Find the auth token from Tuesday" is solved everywhere we looked:
+"Find the staging database's auth token" is solved everywhere we looked:
 archive + search returns needles ≈1.0 for every arm from 8K budgets
 to 5.5M tokens, and ordinary QA gaps stay ≤6 pts. The unnamed
 questions — *what have we worked on* (inventory), *which value is
