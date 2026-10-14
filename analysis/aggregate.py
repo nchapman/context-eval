@@ -22,7 +22,7 @@ for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
     agg = defaultdict(lambda: {'n': 0, 'sum': 0.0, 'blank': 0, 'err': 0})
     n_runs = len(runs)
     run_errs = sum(1 for r in runs if r.get('error'))
-    overflow = sum(1 for r in runs if r.get('overflowed_at'))
+    overflow = sum(1 for r in runs if r.get('overflowed_at') is not None)
     empty_sum = sum(r.get('empty_summaries') or 0 for r in runs)
     parse_err = sum(1 for r in runs if r.get('_parse_error'))
     strat = runs[0].get('strategy') if runs and not runs[0].get('_parse_error') else '?'
@@ -54,7 +54,7 @@ for path in sorted(glob.glob('results/**/*.jsonl', recursive=True)):
             'file': path.replace('results/', ''),
             'strategy': s, 'budget': b, 'runs': len(rs),
             'run_errs': sum(1 for r in rs if r.get('error')),
-            'overflow': sum(1 for r in rs if r.get('overflowed_at')),
+            'overflow': sum(1 for r in rs if r.get('overflowed_at') is not None),
             'empty_summaries': sum(r.get('empty_summaries') or 0 for r in rs),
             'parse_err': parse_err,
             'q': tot[0], 'mean': round(tot[1] / tot[0], 3) if tot[0] else None,

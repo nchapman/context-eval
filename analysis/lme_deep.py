@@ -31,9 +31,25 @@ def load(path):
     with open(path) as f:
         for line in f:
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 runs.append(json.loads(line))
+            except json.JSONDecodeError:
+                runs.append({'_parse_error': True})
     return runs
+
+
+def dev100_seen_ids():
+    """The 25 tuning ('seen') sample_ids: the first 25 samples of the dev100
+    corpus file (dev25 ⊂ dev100 by construction; see scripts/build_devset.py)."""
+    seen = set()
+    with open('data/longmemeval_dev100.jsonl') as f:
+        for i, line in enumerate(f):
+            if i >= 25:
+                break
+            seen.add(json.loads(line)['sample_id'])
+    return seen
 
 
 def cells(runs, strat):
@@ -52,6 +68,10 @@ def cells(runs, strat):
 for gname, paths in groups.items():
     per_arm_cat = {a: defaultdict(lambda: [0, 0.0]) for a in ARMS}
     per_arm_tot = {a: [0, 0.0] for a in ARMS}
+    # seen/fresh split for the dev100 group (findings §5: the tuning samples
+    # score 0.92–1.00 for every arm; only fresh-75 numbers are eval numbers)
+    seen = dev100_seen_ids() if gname == 'dev100' else None
+    split_tot = {a: {'seen': [0, 0.0], 'fresh': [0, 0.0]} for a in ARMS}
     print(f'\n########## {gname}')
     for p in paths:
         runs = load(p)
@@ -65,6 +85,12 @@ for gname, paths in groups.items():
                 c = per_arm_cat[a][cat or '?']
                 c[0] += 1
                 c[1] += sc
+        if seen is not None:
+            for a in ARMS:
+                for (sid, _qid), (sc, _cat, _pred) in sw[a].items():
+                    cell = split_tot[a]['seen' if sid in seen else 'fresh']
+                    cell[0] += 1
+                    cell[1] += sc
         common = set(sw['flat-compact']) & set(sw['sawtooth-ledger5']) & set(sw['lcm'])
         name = p.split('/')[-1]
         row = []
@@ -81,5 +107,9 @@ for gname, paths in groups.items():
     for a in ARMS:
         n, s = per_arm_tot[a]
         print(f'  {a:<18} n={n:>4} acc={s / n:.3f}')
+        if seen is not None:
+            for grp in ('seen', 'fresh'):
+                gn, gs = split_tot[a][grp]
+                print(f'     {grp:<5} n={gn:>4} acc={gs / gn:.3f}')
         cats = sorted(per_arm_cat[a].items(), key=lambda x: -x[1][0])
         print('     ' + '  '.join(f'{c}:{v[1] / v[0]:.2f}(n={v[0]})' for c, v in cats))

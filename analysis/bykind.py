@@ -8,14 +8,20 @@ def load(path):
     out = []
     for line in open(path):
         line = line.strip()
-        if line:
+        if not line:
+            continue
+        try:
             out.append(json.loads(line))
+        except json.JSONDecodeError:
+            out.append({'_parse_error': True})
     return out
 
-files = sorted(glob.glob('results/final/saw-*.jsonl') + glob.glob('results/final/grid64*.jsonl')
-               + glob.glob('results/final/grid64b*.jsonl') + glob.glob('results/mega/*.jsonl')
-               + glob.glob('results/qual/*.jsonl') + glob.glob('results/collection/*.jsonl')
-               + glob.glob('results/validation/*.jsonl'))
+files = sorted(
+    set(glob.glob('results/final/saw-*.jsonl') + glob.glob('results/final/grid64*.jsonl'))
+    | set(glob.glob('results/mega/*.jsonl'))
+    | set(glob.glob('results/qual/*.jsonl') + glob.glob('results/collection/*.jsonl'))
+    | set(glob.glob('results/validation/*.jsonl'))
+)
 for p in files:
     runs = load(p)
     by = defaultdict(lambda: [0, 0.0])
