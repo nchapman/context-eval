@@ -18,7 +18,7 @@ that holds them pays.
   beat flat `/compact` by more than noise on any fresh comparison
   (0.71 vs 0.74 on fresh LongMemEval-S).
 - **Ship a typed append-only ledger if the agent must know what it's
-  working on** (our arm, §4): inventory 0.77–0.91 vs 0.00–0.02 for
+  working on** (our arm, [§4](#4-method-in-ten-lines)): inventory 0.77–0.91 vs 0.00–0.02 for
   prose rewriters at 1–2M tokens, supersession 0.88 vs 0.62 (n≈50) —
   at cost parity. Its ordinary-QA edge is direction, not significance
   (p≈0.10).
@@ -92,14 +92,22 @@ one cost ledger. So we did, across:
 Replay harness (`src/context_eval/`): append → strategy hook → assemble →
 budget check, then question-time tool interleaving. Arms are clean-room
 mechanisms over a shared verbatim archive + search tools: evict
-(`sliding-window`, `context-editing`), search (`retrieval`, `arc`),
-rewrite (`flat-compact`, `lcm`, `sawtooth-rewrite/segments`), maintain
-(`representation`), and typed append-only ledgers (`conclusions`,
-`sawtooth-ledger*`) — 18 registered arms. Budgets bound the assembled view
+([`sliding-window`](src/context_eval/strategies/sliding_window.py),
+[`context-editing`](src/context_eval/strategies/context_editing.py)), search
+([`retrieval`](src/context_eval/strategies/retrieval.py),
+[`arc`](src/context_eval/strategies/arc.py)),
+rewrite ([`flat-compact`](src/context_eval/strategies/flat_compact.py),
+[`lcm`](src/context_eval/strategies/lcm.py),
+[`sawtooth-rewrite/segments`](src/context_eval/strategies/sawtooth.py)),
+maintain ([`representation`](src/context_eval/strategies/representation.py)),
+and typed append-only ledgers
+([`conclusions`](src/context_eval/strategies/conclusions.py),
+[`sawtooth-ledger*`](src/context_eval/strategies/sawtooth.py)) — 18
+registered arms. Budgets bound the assembled view
 only; all token/cost accounting flows through one counter. One model
 everywhere (`deepseek/deepseek-v4.1-flash`); LongMemEval scored with its
 official check; matched-set and seen/fresh discipline throughout. Details:
-findings §8.
+[findings §8](docs/findings.md#8-judge-and-instrument-validity).
 
 One arm family is ours. The `sawtooth-*` arms pin the compaction
 schedule bit-identical — same trigger, same 12K-token verbatim head,
@@ -114,7 +122,8 @@ in code, an activation-law ladder that budgets the resident block by
 workstream, and render-time demotion of quiet topics. All three
 headline arms — flat, lcm, ledger5 — were tuned on the 25-sample dev25
 split; dev100's first 25 samples are exactly those, which is why every
-LongMemEval number below is seen/fresh split and why §5.5's fresh
+LongMemEval number below is seen/fresh split and why
+[§5.5](#55-the-honest-fresh-longmemeval-numbers)'s fresh
 numbers, not the 0.92–1.00 seen scores, are the real ones.
 
 ## 5. Findings
@@ -167,7 +176,8 @@ over flat). **Aggregation fails for everyone** — the facts exist in the
 store but nothing guarantees all of a topic's rows reach the view when a
 count is asked ("you serviced **1 bike**", gold 2). Answer-time access,
 not storage: the open problem no arm solved. (\* n=13; two dropped error
-rows — findings §3.)
+rows —
+[findings §3](docs/findings.md#3-supersession-and-aggregation-the-shape-failures).)
 
 ### 5.4 Flat's robustness is real — and partly corpus luck
 
@@ -177,7 +187,7 @@ LongMemEval (median calendar span ~10 days) rewards recency. But the
 failures that remain are shape failures, not decay: multi-session 0.50 at
 *both* budget extremes, current-value tracking 0.57 at 16K. A corpus with
 sparse contact over months and real drift would bite harder — and it does
-not exist yet (§8).
+not exist yet ([§8](#8-what-this-doesnt-show)).
 
 ### 5.5 The honest fresh LongMemEval numbers
 
@@ -201,7 +211,7 @@ earlier "cheapest summarizer" claims in both directions were overstatements.
 At ~5.5M tokens every flat-grain back collapsed (R11: continuity 0.0–0.3
 for none / ledger-v1 / ledger4). The theory-driven ledger5 — activation-law
 ladder, append-only store, render-time demotion
-(`docs/resident-memory-theory.md`) — holds **continuity 0.70–0.80, currency
+([docs/resident-memory-theory.md](docs/resident-memory-theory.md)) — holds **continuity 0.70–0.80, currency
 0.4–0.9, needles 1.0** on the same sessions (n=4 runs; treat as one
 session family's evidence). Caveat, measured: enumeration is *mass-gated* —
 topics that went quiet early seal and get curated out of uncued answers
@@ -235,7 +245,7 @@ long-dormant work.
    arm can touch.
 7. **The discriminating corpus still does not exist** — sparse multi-month
    contact with real drift. Highest-value dataset to build next
-   (`docs/dataset-plan.md`).
+   ([`docs/dataset-plan.md`](docs/dataset-plan.md)).
 
 ## 7. How the conclusions evolved
 
@@ -252,7 +262,7 @@ the harness or an independent recheck, which is why we trust the rest:
   10-pt "ledger5 wins" gap to a probable 3–6 pts.
 - **The tie claim, corrected.** "Flat statistically indistinguishable from
   hierarchy" was true for LCM but overgeneralized, partly on
-  tuning-era sensitivity arguments; the corrected reading is §1.
+  tuning-era sensitivity arguments; the corrected reading is [§1](#1-the-six-answers).
 - **Probe validity.** The continuity probe's meaning depends on where a
   topic's last mention lands (mass-gating); a stronger needle-detection
   effect surfaced as refusals. Probes are instruments — calibrate them
@@ -267,7 +277,7 @@ findings.md; anything inside ±6 pts or below n≈50 is directional. The
 corpus that would discriminate structure's value — months of sparse
 contact with real drift — does not exist; LongMemEval's ~10-day median
 span flatters recency-biased designs. And aggregation fails for
-everyone (§5.3), so no arm "wins" conversational retention outright.
+everyone ([§5.3](#53-supersession-and-aggregation-the-shape-failures)), so no arm "wins" conversational retention outright.
 
 ## 9. Reproducing
 
@@ -277,12 +287,13 @@ uv run python scripts/preflight.py --leg swe    # cost/wall-clock gate BEFORE an
 uv run python -m context_eval.run_eval --path data/longmemeval_dev100.jsonl \
   --strategies flat-compact,lcm,sawtooth-ledger5 --budgets 64000 \
   --samples 100 --out results/x.jsonl
-python3 analysis/lme_deep.py                   # recompute findings §5 from raw rows
+python3 analysis/lme_deep.py                   # recompute [findings §5](docs/findings.md#5-longmemeval-the-honest-fresh-numbers) from raw rows
 ```
 
-Corpora rebuild from loaders (`data/README.md`); ~$222 total measured API
-spend across the project's life; raw run rows live in `results/`
-(gitignored, mapped in `results/README.md`).
+Corpora rebuild from loaders ([`data/README.md`](data/README.md)); ~$222
+total measured API spend across the project's life; raw run rows live in
+`results/` (gitignored, mapped in
+[`results/README.md`](results/README.md)).
 
 ## 10. Repo map & further reading
 
@@ -303,4 +314,4 @@ spend across the project's life; raw run rows live in `results/`
 - `src/context_eval/` — the harness; `tests/` — 406 tests; `AGENTS.md` —
   engineering instructions for working on this repo.
 
-MIT licensed. ~4,900 recorded runs, one model, ~$222.
+MIT licensed. 7,062 recorded runs, one model, ~$222.
