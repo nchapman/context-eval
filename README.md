@@ -263,7 +263,9 @@ long-dormant work.
    arm can touch.
 7. **The discriminating corpus still does not exist** — sparse multi-month
    contact with real drift. Highest-value dataset to build next
-   ([`docs/dataset-plan.md`](docs/dataset-plan.md)).
+   ([`docs/dataset-plan.md`](docs/dataset-plan.md);
+   the full follow-up run is specified in
+   [`docs/v2-plan.md`](docs/v2-plan.md)).
 
 ## 7. How the conclusions evolved
 
@@ -294,7 +296,8 @@ ratios transfer, absolutes don't). n is stated per claim in
 findings.md; anything inside ±6 pts or below n≈50 is directional. The
 corpus that would discriminate structure's value — months of sparse
 contact with real drift — does not exist; LongMemEval's ~10-day median
-span flatters recency-biased designs. And aggregation fails for
+span flatters recency-biased designs (v2 would build it:
+[`docs/v2-plan.md`](docs/v2-plan.md)). And aggregation fails for
 everyone ([§5.3](#53-supersession-and-aggregation-the-shape-failures)), so no arm "wins" conversational retention outright.
 
 ## 9. Reproducing
@@ -326,7 +329,9 @@ total measured API spend across the project's life; raw run rows live in
   falsifiable predictions.
 - [`docs/dataset-plan.md`](docs/dataset-plan.md) — the missing-corpus gap
   and what would fill it. [`docs/budgets.md`](docs/budgets.md) — real
-  deployment budget tiers.
+  deployment budget tiers. [`docs/v2-plan.md`](docs/v2-plan.md) — the
+  clean follow-up run: the three open questions, lessons turned into
+  gates, and the powered experiments that would settle them.
 - [`data/README.md`](data/README.md) / [`results/README.md`](results/README.md) —
   tracked manifests for the gitignored corpora and run archive.
 - `src/context_eval/` — the harness; `tests/` — 406 tests; `AGENTS.md` —
