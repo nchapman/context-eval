@@ -4,8 +4,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 dist/
-data/
-results/
+data/*
+!data/README.md
+results/*
+!results/README.md
 .env
 .pi/
 data/pi_sessions.jsonl
